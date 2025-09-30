@@ -98,6 +98,10 @@ if (isset($_GET['message'])) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo APP_NAME; ?> - <?php echo VIEWS[$currentView]; ?></title>
     
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="assets/images/logo.ico">
+    <link rel="shortcut icon" type="image/x-icon" href="assets/images/logo.ico">
+    
     <!-- CSS -->
     <link rel="stylesheet" href="assets/css/style.css">
     
@@ -115,11 +119,13 @@ if (isset($_GET['message'])) {
     <header class="app-header">
         <div class="header-content">
             <div class="header-left">
-                <h1 class="app-title">
-                    <i class="fas fa-calculator"></i>
-                    <?php echo APP_NAME; ?>
-                </h1>
-                <span class="version">v<?php echo APP_VERSION; ?></span>
+                <a href="index.php?view=principal" class="logo-link" title="Retour à l'accueil">
+                    <img src="assets/images/logo.png" alt="Logo Gestion des Créances" class="app-logo">
+                </a>
+                <div class="title-group">
+                    <h1 class="app-title"><?php echo APP_NAME; ?></h1>
+                    <span class="version">v<?php echo APP_VERSION; ?></span>
+                </div>
             </div>
             
             <div class="header-right">
