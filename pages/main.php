@@ -210,10 +210,7 @@ try {
                                         <button class="btn-action btn-edit" onclick="editCreance(<?php echo $ligne['id']; ?>)" title="Modifier">
                                             <i class="fas fa-edit"></i>
                                         </button>
-                                        <button class="btn-action btn-archive" onclick="archiveCreance(<?php echo $ligne['id']; ?>)" title="Archiver">
-                                            <i class="fas fa-archive"></i>
-                                        </button>
-                                        <button class="btn-action btn-delete" onclick="deleteCreance(<?php echo $ligne['id']; ?>)" title="Supprimer">
+                                        <button class="btn-action btn-delete" onclick="archiveCreance(<?php echo $ligne['id']; ?>)" title="Archiver">
                                             <i class="fas fa-trash"></i>
                                         </button>
                                     </div>
@@ -344,60 +341,74 @@ console.log(activeFilters)
 
 // Fonction pour ouvrir le formulaire d'ajout
 function openFormModal() {
-    document.getElementById('modalTitle').textContent = 'Ajouter une créance';
-    document.getElementById('formAction').value = 'add';
-    document.getElementById('formId').value = '';
-    document.getElementById('formVersion').value = '';
-    document.getElementById('creanceForm').reset();
-    
-    // Charger les clients existants
-    loadClients();
-    
-    document.getElementById('formModal').style.display = 'flex';
+    const iframe = document.getElementById('formIframe');
+    document.getElementById('formModalTitle').textContent = 'Ajouter une créance';
+    // charger form.php (affiche la page complète à l'intérieur de l'iframe)
+    iframe.src = 'pages/form.php?action=add&embedded=1';
+    document.getElementById('formModalIframeBG').style.display = 'flex';
 }
 
 // Fonction pour éditer une créance
 function editCreance(id) {
-    // Récupérer les données de la créance via AJAX
-    fetch(`pages/ajax/get_creance.php?id=${id}`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                const creance = data.creance;
-                
-                document.getElementById('modalTitle').textContent = 'Modifier une créance';
-                document.getElementById('formAction').value = 'edit';
-                document.getElementById('formId').value = creance.id;
-                document.getElementById('formVersion').value = creance.version;
-                
-                // Remplir les champs
-                document.getElementById('region').value = creance.region;
-                document.getElementById('secteur').value = creance.secteur;
-                document.getElementById('client').value = creance.client;
-                document.getElementById('intitule_marche').value = creance.intitule_marche;
-                document.getElementById('num_facture_situation').value = creance.num_facture_situation;
-                document.getElementById('date_str').value = creance.date_str;
-                document.getElementById('nature').value = creance.nature;
-                document.getElementById('montant_total').value = creance.montant_total;
-                document.getElementById('encaissement').value = creance.encaissement;
-                
-                if (creance.observation) {
-                    document.getElementById('observationInclude').checked = true;
-                    document.getElementById('observation').disabled = false;
-                    document.getElementById('observation').value = creance.observation;
-                }
-                
-                loadClients();
-                document.getElementById('formModal').style.display = 'flex';
-            } else {
-                alert('Erreur: ' + data.error);
-            }
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert('Erreur lors du chargement de la créance');
-        });
+    const iframe = document.getElementById('formIframe');
+    document.getElementById('formModalTitle').textContent = 'Modifier une créance';
+    iframe.src = `pages/form.php?action=edit&id=${id}&embedded=1`;
+    document.getElementById('formModalIframeBG').style.display = 'flex';
 }
+
+// Fermer la modal
+function closeFormModal() {
+    const bg = document.getElementById('formModalIframeBG');
+    const iframe = document.getElementById('formIframe');
+    bg.style.display = 'none';
+    // vider la source pour arrêter les scripts et la requête
+    iframe.src = 'about:blank';
+}
+
+// Ecouter les messages postMessage depuis l'iframe (form.php)
+window.addEventListener('message', function(ev) {
+    // vérification simple : s'assurer que c'est un message objet et contient un type
+    try {
+        const data = (typeof ev.data === 'string') ? JSON.parse(ev.data) : ev.data;
+        if (!data || !data.type) return;
+
+        if (data.type === 'creanceSaved') {
+            // masquer modal, recharger tableau
+            closeFormModal();
+            // recharge les données via ton AJAX
+            reloadTableData();
+            // optionnel : afficher notification
+            console.log('Créance sauvegardée (id=', data.id, ')');
+        }
+    } catch (e) {
+        // ignore non-json messages
+        console.warn('Message reçu invalide', e);
+    }
+}, false);
+
+// Écouter les messages postMessage depuis l'iframe (form.php)
+window.addEventListener('message', function(ev) {
+    try {
+        const data = (typeof ev.data === 'string') ? JSON.parse(ev.data) : ev.data;
+        if (!data || !data.type) return;
+
+        if (data.type === 'creanceSaved') {
+            // Créance sauvegardée : fermer modal et recharger
+            closeFormModal();
+            reloadTableData();
+            
+            // Afficher notification de succès
+            showNotification('Créance enregistrée avec succès', 'success');
+            console.log('Créance sauvegardée (id=', data.id, ')');
+        } 
+        else if (data.type === 'closeModal') {
+            // Demande de fermeture du modal depuis l'iframe
+            closeFormModal();
+        }
+    } catch (e) {
+        console.warn('Message reçu invalide', e);
+    }
+}, false);
 
 // Fonction pour archiver une créance
 function archiveCreance(id) {
@@ -417,28 +428,10 @@ function archiveCreance(id) {
     );
 }
 
-// Fonction pour supprimer une créance
-function deleteCreance(id) {
-    showConfirm(
-        'Confirmer la suppression',
-        'Êtes-vous sûr de vouloir supprimer définitivement cette créance ? Cette action est irréversible !',
-        () => {
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.innerHTML = `
-                <input type="hidden" name="action" value="delete">
-                <input type="hidden" name="id" value="${id}">
-            `;
-            document.body.appendChild(form);
-            form.submit();
-        }
-    );
-}
-
 // Fonction pour trier le tableau
 function sortTable(column) {
     if (currentSort === column) {
-        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+        sortDirection === 'asc' ? 'desc' : 'asc';
     } else {
         currentSort = column;
         sortDirection = 'asc';
@@ -485,24 +478,58 @@ function exportCSV() {
 
 // Fonction pour réinitialiser les filtres
 function resetFilters() {
-    // Effacer tous les filtres
+    // Vide l'objet de filtres côté client
     activeFilters = {};
-    
-    // Décocher toutes les cases
-    document.querySelectorAll('.filter-option input[type="checkbox"]').forEach(cb => {
-        cb.checked = true;
-    });
-    
-    // Mettre à jour le texte des boutons de filtre
+
+    // Recocher toutes les cases côté UI
+    document.querySelectorAll('.filter-option input[type="checkbox"]').forEach(cb => cb.checked = true);
+
+    // Remettre le texte des boutons à "Tous"
     <?php foreach (COLONNES_FILTRABLES as $col): ?>
-        document.getElementById('filter-<?php echo $col; ?>-text').textContent = 'Tous';
+        const lbl_<?php echo $col; ?> = document.getElementById('filter-<?php echo $col; ?>-text');
+        if (lbl_<?php echo $col; ?>) lbl_<?php echo $col; ?>.textContent = 'Tous';
     <?php endforeach; ?>
-    
-    // Recharger la page sans filtres
+
+    // Vider la recherche (input)
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+
+    // Supprimer les indicateurs visuels (si présents)
+    const searchIndicator = document.querySelector('.search-indicator');
+    if (searchIndicator) searchIndicator.remove();
+    const filterIndicator = document.querySelector('.filter-indicator');
+    if (filterIndicator) filterIndicator.remove();
+
+    // Mettre à jour l'URL : supprimer `search` et remettre page=1 (sans recharger la page)
     const params = new URLSearchParams(window.location.search);
     params.delete('search');
-    window.location.search = params.toString();
+    params.set('page', 1);
+    const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    window.history.replaceState({}, '', newUrl);
+
+    // Vider aussi les filtres côté serveur (session) puis recharger le tableau
+    fetch('pages/ajax/set_filters.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({filters: {}})
+    })
+    .then(resp => resp.json().catch(() => ({success: true}))) // tolérance si la réponse n'est pas JSON
+    .then(response => {
+        // Recharger les données du tableau (reloadTableData gère le loader)
+        reloadTableData();
+    })
+    .catch(err => {
+        console.error('resetFilters - erreur set_filters:', err);
+        // On recharge quand même le tableau pour rester résilient
+        reloadTableData();
+    });
 }
+
 
 // Gestion des filtres dropdown
 function toggleFilterDropdown(column) {
@@ -535,20 +562,36 @@ function selectAllOptions(column, checked) {
     });
 }
 
+// normalise la recherche côté client
+function normalizeSearchInput(s) {
+    if (!s) return '';
+    let t = s.trim();
+
+    // si la chaîne contient uniquement chiffres, espaces, virgules, points, +/-
+    if (/^[\d\s.,+-]+$/.test(t)) {
+        t = t.replace(/\s+/g, ''); // supprime espaces (ex: "1 234")
+        t = t.replace(/,/g, '.');  // transforme "123,45" => "123.45"
+    }
+
+    return t;
+}
+
 // Fonction pour recharger uniquement les données du tableau via AJAX
 function reloadTableData() {
     console.log('reloadTableData - DÉBUT');
     console.log('reloadTableData - activeFilters:', activeFilters);
-    console.log('activeFilters stringified:', JSON.stringify(activeFilters[0]))
+    console.log('activeFilters stringified:', JSON.stringify(convertFiltersToBackend(activeFilters)))
     
-    const searchQuery = document.getElementById('searchInput') ? document.getElementById('searchInput').value : '';
+    const rawSearch = document.getElementById('searchInput') ? document.getElementById('searchInput').value : '';
+    const normalizedSearch = normalizeSearchInput(rawSearch); // <-- utilisation
     const urlParams = new URLSearchParams(window.location.search);
+
     const page = urlParams.get('page') || 1;
     const limit = urlParams.get('limit') || <?php echo ITEMS_PER_PAGE; ?>;
     
     const params = {
-        filters: JSON.stringify(activeFilters),
-        search: searchQuery,
+        filters: JSON.stringify(convertFiltersToBackend(activeFilters)),
+        search: normalizedSearch,
         page: page,
         limit: limit,
         archived: 0,
@@ -585,6 +628,7 @@ function reloadTableData() {
             
             if (data.success) {
                 console.log('reloadTableData - SUCCESS');
+                console.log('data filtered:', data.data.creances)
                 updateTableContent(data.data.creances);
                 
                 if (data.data.pagination) {
@@ -770,6 +814,24 @@ function updateFilter(column) {
     // Cette fonction est appelée quand une checkbox change
 }
 
+const COLUMN_MAPPING = {
+    'REGION': 'REGION',
+    'SECTEUR': 'SECTEUR',
+    'CLIENT': 'CLIENT',
+    'NATURE': 'NATURE',
+    'DATE': 'date_str'
+};
+
+function convertFiltersToBackend(filters) {
+    const converted = {};
+    for (const [key, value] of Object.entries(filters)) {
+        const backendKey = COLUMN_MAPPING[key] || key;
+        converted[backendKey] = value;
+    }
+    console.log('Filtres convertis:', converted);
+    return converted;
+}
+
 function applyFilter(column) {
     const checkboxes = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]:checked`);
     const values = Array.from(checkboxes).map(cb => cb.value);
@@ -792,12 +854,12 @@ function applyFilter(column) {
     
     // Afficher un loader
     showLoader();
-    
+
     // Envoyer les filtres au serveur via AJAX et recharger seulement le tableau
     fetch('pages/ajax/set_filters.php', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({filters: activeFilters})
+        body: JSON.stringify({filters: convertFiltersToBackend(activeFilters)})
     })
     .then(response => response.json())
     .then(data => {
@@ -817,13 +879,17 @@ function applyFilter(column) {
 }
 
 function clearFilter(column) {
-    delete activeFilters[column];
+    // Décocher toutes les cases de ce filtre
+    document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`).forEach(cb => cb.checked = false);
+
+    // Mettre à jour l'objet activeFilters
+    activeFilters[column] = [];
+
+    // Mettre le label à "Tous"
     document.getElementById(`filter-${column}-text`).textContent = 'Tous';
-    
-    const checkboxes = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`);
-    checkboxes.forEach(cb => cb.checked = true);
-    
-    toggleFilterDropdown(column);
+
+    // Recharger le tableau
+    reloadTableData();
 }
 
 // Toggle filters visibility
@@ -867,3 +933,143 @@ document.getElementById('searchInput')?.addEventListener('keyup', function(e) {
     }
 });
 </script>
+
+<!-- Modal/Form card (iframe) -->
+<style>
+/* styles simples pour la "card" modal */
+#formModalIframeBG {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 1200;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(2px);
+}
+
+iframe#formIframe {
+    height: -webkit-fill-available;
+}
+
+#formModalContainer {
+  background: #fff;
+  width: 95vw;
+  max-width: 1400px;
+  height: 92vh;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#formModalIframe {
+  background: #fff;
+  width: 100%;
+  max-width: 980px;
+  height: 85vh;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  border: none;
+}
+
+#formModalCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+  flex-shrink: 0;
+}
+
+#formModalTitle {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #2c3e50;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#formModalTitle i {
+  color: var(--primary-color);
+}
+
+/* Boutons du header */
+#formModalCardHeader > div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#formModalReloadBtn {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 1.1rem;
+}
+
+#formModalReloadBtn:hover {
+  background: #f8f9fa;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+#formModalCardClose {
+  background: transparent;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  color: #666;
+  transition: color 0.3s;
+}
+
+#formModalCardClose:hover {
+  color: var(--danger-color);
+}
+
+@media (max-width: 768px) {
+  #formModalContainer {
+    width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    max-width: none;
+  }
+  
+  #formModalIframeBG {
+    padding: 0;
+  }
+}
+</style>
+
+<div id="formModalIframeBG" role="dialog" aria-hidden="true">
+  <div id="formModalContainer">
+    <div id="formModalCardHeader">
+      <strong id="formModalTitle">
+        <i class="fas fa-file-alt"></i>
+        Formulaire
+      </strong>
+      <div>
+        <button id="formModalReloadBtn" 
+                class="btn btn-sm btn-secondary" 
+                onclick="document.getElementById('formIframe').contentWindow.location.reload();"
+                title="Recharger le formulaire">
+          <i class="fas fa-sync-alt"></i>
+        </button>
+        <button id="formModalCardClose" 
+                onclick="closeFormModal()"
+                title="Fermer">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+    </div>
+
+    <iframe id="formIframe" src="" title="Formulaire créance"></iframe>
+  </div>
+</div>

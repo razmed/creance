@@ -53,13 +53,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $message = 'Erreur : ' . $e->getMessage();
         $messageType = 'error';
     }
+
+    // Après un add ou un edit réussi
+    if ($messageType === 'success') {
+        $savedId = isset($newId) ? (int)$newId : (isset($id) ? (int)$id : 0);
+        
+        // Si mode embedded, notifier le parent ET fermer après 1 seconde
+        if (isset($_GET['embedded']) && $_GET['embedded'] == '1') {
+            echo "<script>
+                try {
+                    // Notifier le parent
+                    window.parent.postMessage({
+                        type: 'creanceSaved', 
+                        id: ".json_encode($savedId)."
+                    }, '*');
+                    
+                    // Fermer automatiquement après 1 seconde
+                    setTimeout(function() {
+                        window.parent.postMessage({type: 'closeModal'}, '*');
+                    }, 1000);
+                } catch(e) {
+                    console.error('postMessage error', e);
+                }
+            </script>";
+        }
+    }
+
 }
 
-// Charger les clients existants pour la liste déroulante
+// Charger les clients existants pour la liste déroulante (trim pour éviter différences d'espaces)
+// Charger les clients existants pour la liste déroulante (trim + uniq)
 try {
     $db = new Database();
     $clientsResult = $db->select("SELECT DISTINCT client FROM creances WHERE client IS NOT NULL AND client != '' ORDER BY client");
-    $clientsExistants = array_column($clientsResult, 'client');
+    $clientsExistants = array_map('trim', array_filter(array_column($clientsResult, 'client')));
+    // garantir l'unicité (au cas où)
+    $clientsExistants = array_values(array_unique($clientsExistants));
 } catch (Exception $e) {
     $clientsExistants = [];
 }
@@ -81,9 +110,14 @@ try {
                 <i class="fas fa-<?php echo $action === 'edit' ? 'edit' : 'plus'; ?>"></i>
                 <?php echo $action === 'edit' ? 'Modifier' : 'Ajouter'; ?> une créance
             </h1>
-            <a href="../index.php" class="btn btn-secondary">
-                <i class="fas fa-arrow-left"></i> Retour
-            </a>
+            <?php 
+            // Afficher le bouton retour SEULEMENT si on n'est PAS en mode embedded
+            if (!isset($_GET['embedded']) || $_GET['embedded'] != '1'): 
+            ?>
+                <a href="../index.php" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Retour
+                </a>
+            <?php endif; ?>
         </div>
 
         <?php if (!empty($message)): ?>
@@ -150,10 +184,13 @@ try {
                                 </div>
                                 <select name="client" id="client" class="form-control" required>
                                     <option value="">Sélectionner un client...</option>
-                                    <?php foreach ($clientsExistants as $client): ?>
-                                        <option value="<?php echo htmlspecialchars($client); ?>"
-                                                <?php echo ($editData && $editData['client'] === $client) ? 'selected' : ''; ?>>
-                                            <?php echo htmlspecialchars($client); ?>
+                                    <?php foreach ($clientsExistants as $client): 
+                                        $clientTrim = trim($client);
+                                        $editClientTrim = $editData && isset($editData['client']) ? trim($editData['client']) : '';
+                                    ?>
+                                        <option value="<?php echo htmlspecialchars($clientTrim); ?>"
+                                                <?php echo ($editData && $editClientTrim !== '' && $editClientTrim === $clientTrim) ? 'selected' : ''; ?>>
+                                            <?php echo htmlspecialchars($clientTrim); ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -286,9 +323,18 @@ try {
                     <button type="reset" class="btn btn-secondary">
                         <i class="fas fa-undo"></i> Réinitialiser
                     </button>
-                    <a href="../index.php" class="btn btn-light">
-                        <i class="fas fa-times"></i> Annuler
-                    </a>
+                    
+                    <?php if (isset($_GET['embedded']) && $_GET['embedded'] == '1'): ?>
+                        <!-- Mode embedded : bouton fermer le modal -->
+                        <button type="button" class="btn btn-light" onclick="closeModal()">
+                            <i class="fas fa-times"></i> Annuler
+                        </button>
+                    <?php else: ?>
+                        <!-- Mode standalone : lien retour -->
+                        <a href="../index.php" class="btn btn-light">
+                            <i class="fas fa-times"></i> Annuler
+                        </a>
+                    <?php endif; ?>
                 </div>
             </form>
         </div>
@@ -297,31 +343,69 @@ try {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script>
     $(document).ready(function() {
-        // Initialisation
         initFormEvents();
+        // initialisation des valeurs calculées après avoir attaché les events
         updateCalculatedValues();
-        
-        // Vérifier si on édite avec nouvelle région/client
+
+        // Si on est en édition, initialiser l'état des contrôles (client nouveau, region nouveau, encaissement)
         <?php if ($editData): ?>
-            <?php if (!empty($editData['region']) && !in_array($editData['region'], CHOIX_REGION)): ?>
-                $('#regionNouveau').prop('checked', true).trigger('change');
-                $('#regionNew').val('<?php echo htmlspecialchars($editData['region']); ?>');
-            <?php endif; ?>
-            
-            <?php if (!empty($editData['client']) && !in_array($editData['client'], $clientsExistants)): ?>
-                $('#clientNouveau').prop('checked', true).trigger('change');
-                $('#clientNew').val('<?php echo htmlspecialchars($editData['client']); ?>');
-            <?php endif; ?>
+            // client : si le client enregistré n'est pas dans la liste, activer "Nouveau client"
+            <?php $clientEdit = isset($editData['client']) ? addslashes(trim($editData['client'])) : ''; ?>
+            (function() {
+                var editClient = "<?php echo $clientEdit; ?>";
+                if (editClient !== "") {
+                    var found = false;
+                    $('#client option').each(function() {
+                        if ($.trim($(this).val()) === editClient) found = true;
+                    });
+                    if (!found) {
+                        $('#clientNouveau').prop('checked', true).trigger('change');
+                        $('#clientNew').val(editClient);
+                    } else {
+                        // s'assurer que le select est correctement sélectionné si trouvé
+                        $('#client').val(editClient);
+                    }
+                }
+            })();
+
+            // encaissement: si encaissement == 0 alors checkbox cochée (comportement souhaité: cochée => encaissement = 0)
+            <?php $enc = isset($editData['encaissement']) ? (float)$editData['encaissement'] : 0; ?>
+            (function() {
+                var encVal = <?php echo json_encode($enc); ?>;
+                $('#encaissementZero').prop('checked', encVal === 0);
+                setEncaissementState(); // applique l'état en UI
+                updateCalculatedValues();
+                console.log('INIT EDIT - encaissement:', encVal, 'checkbox:', $('#encaissementZero').is(':checked'));
+            })();
         <?php endif; ?>
     });
 
+    // Centralise la gestion du toggle encaissement
+    function setEncaissementState() {
+        // cochée => encaissement = 0 (désactivé)
+        if ($('#encaissementZero').is(':checked')) {
+            $('#encaissement').prop('disabled', true).val('0.00');
+            $('#encaissement_total').prop('disabled', true).val('0.00');
+        } else {
+            // décochée => encaissement = montant_total (modifiable)
+            $('#encaissement').prop('disabled', false);
+            var montantTotal = parseFloat($('#montant_total').val()) || 0;
+            // si on est en édition et que l'utilisateur avait déjà une valeur personnalisée (non nulle),
+            // on ne l'écrase pas automatiquement ; on met la valeur du montant total seulement si le champ est vide ou égal à 0
+            var currentEnc = parseFloat($('#encaissement').val());
+            if (isNaN(currentEnc) || currentEnc === 0) {
+                $('#encaissement').val(montantTotal.toFixed(2));
+            }
+        }
+        updateCalculatedValues();
+    }
+
     function initFormEvents() {
         // Région nouveau
-        $('#regionNouveau').change(function() {
+        $('#regionNouveau').off('change').on('change', function() {
             if (this.checked) {
-                $('#region').prop('disabled', true).removeAttr('required');
+                $('#region').prop('disabled', true).removeAttr('required').removeAttr('name');
                 $('#regionNew').show().prop('required', true).attr('name', 'region');
-                $('#region').removeAttr('name');
             } else {
                 $('#region').prop('disabled', false).prop('required', true).attr('name', 'region');
                 $('#regionNew').hide().removeAttr('required').removeAttr('name').val('');
@@ -329,11 +413,10 @@ try {
         });
 
         // Client nouveau
-        $('#clientNouveau').change(function() {
+        $('#clientNouveau').off('change').on('change', function() {
             if (this.checked) {
-                $('#client').prop('disabled', true).removeAttr('required');
+                $('#client').prop('disabled', true).removeAttr('required').removeAttr('name');
                 $('#clientNew').show().prop('required', true).attr('name', 'client');
-                $('#client').removeAttr('name');
             } else {
                 $('#client').prop('disabled', false).prop('required', true).attr('name', 'client');
                 $('#clientNew').hide().removeAttr('required').removeAttr('name').val('');
@@ -341,26 +424,21 @@ try {
         });
 
         // Observation include
-        $('#observationInclude').change(function() {
+        $('#observationInclude').off('change').on('change', function() {
             $('#observation').prop('disabled', !this.checked);
             if (!this.checked) {
                 $('#observation').val('');
             }
         });
 
-        // Encaissement zéro
-        $('#encaissementZero').change(function() {
-            if (this.checked) {
-                var montantTotal = parseFloat($('#montant_total').val()) || 0;
-                $('#encaissement').prop('disabled', true).val(montantTotal.toFixed(2));
-            } else {
-                $('#encaissement').prop('disabled', false).val('0.00');
-            }
-            updateCalculatedValues();
+        // Encaissement zero toggle (comportement : cochée => encaissement = 0)
+        $('#encaissementZero').off('change').on('change', function() {
+            console.log('ENC_TOGGLE changed -> checked=', $(this).is(':checked'));
+            setEncaissementState();
         });
 
         // Auto-formatage date
-        $('#date_str').on('input', function() {
+        $('#date_str').off('input').on('input', function() {
             var value = this.value.replace(/\D/g, '');
             if (value.length >= 2) {
                 value = value.slice(0, 2) + '/' + value.slice(2);
@@ -372,140 +450,131 @@ try {
             updateCalculatedValues();
         });
 
-        // Mise à jour calculs
-        $('#montant_total, #encaissement').on('input', function() {
-            if ($('#encaissementZero').is(':checked')) {
-                var montantTotal = parseFloat($('#montant_total').val()) || 0;
-                $('#encaissement').val(montantTotal.toFixed(2));
-            }
+        // Mise à jour calculs : montant_total change
+        $('#montant_total').off('input').on('input', function() {
+            console.log('montant_total input:', $(this).val());
+            // appliquer l'état d'encaissement selon checkbox
+            setEncaissementState();
+            updateCalculatedValues();
+        });
+
+        // Mise à jour calculs : encaissement change manuellement
+        $('#encaissement').off('input').on('input', function() {
             updateCalculatedValues();
         });
 
         // Validation formulaire
-        $('#creanceForm').submit(function(e) {
+        $('#creanceForm').off('submit').on('submit', function(e) {
             if (!validateForm()) {
                 e.preventDefault();
             }
         });
     }
 
+    /* ---------- fonctions utilitaires (laisses les tiennes existantes) ---------- */
+
     function updateCalculatedValues() {
         var montantTotal = parseFloat($('#montant_total').val()) || 0;
         var encaissement = parseFloat($('#encaissement').val()) || 0;
         var montantCreance = montantTotal - encaissement;
-        
-        // Validation encaissement
+
         if (encaissement > montantTotal) {
             $('#encaissement').addClass('error');
-            $('#encaissement')[0].setCustomValidity('L\'encaissement ne peut pas être supérieur au montant total');
+            try { $('#encaissement')[0].setCustomValidity("L'encaissement ne peut pas être supérieur au montant total"); } catch(e){}
         } else {
             $('#encaissement').removeClass('error');
-            $('#encaissement')[0].setCustomValidity('');
+            try { $('#encaissement')[0].setCustomValidity(''); } catch(e){}
         }
 
         $('#montantCreance').text(formatMoney(montantCreance) + ' DZD');
 
-        // Calculer l'âge
         var dateStr = $('#date_str').val();
         var age = calculateAge(dateStr);
         $('#ageCreance').text(age + ' ans');
 
-        // Calculer la provision
         var ageMonths = calculateAgeMonths(dateStr);
         var provisionPct = calculateProvisionPercentage(ageMonths);
         var provision = (montantCreance * provisionPct) / 100;
         $('#provisionCreance').text(formatMoney(provision) + ' DZD (' + provisionPct + '%)');
-    }
 
-    function calculateAge(dateStr) {
-        if (!dateStr || !validateDate(dateStr)) return 0;
-        
-        var parts = dateStr.split('/');
-        var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
-        var today = new Date();
-        
-        var age = today.getFullYear() - creanceDate.getFullYear();
-        if (today < new Date(today.getFullYear(), creanceDate.getMonth(), creanceDate.getDate())) {
-            age--;
-        }
-        return Math.max(age, 0);
-    }
-
-    function calculateAgeMonths(dateStr) {
-        if (!dateStr || !validateDate(dateStr)) return 0;
-        
-        var parts = dateStr.split('/');
-        var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
-        var today = new Date();
-        
-        var months = (today.getFullYear() - creanceDate.getFullYear()) * 12;
-        months += today.getMonth() - creanceDate.getMonth();
-        return Math.max(months, 0);
-    }
-
-    function calculateProvisionPercentage(ageMonths) {
-        if (ageMonths >= 60) return 100;      // 5 ans ou plus
-        if (ageMonths >= 36) return 50;       // 3-5 ans
-        if (ageMonths >= 24) return 20;       // 2-3 ans
-        return 0;                             // Moins de 2 ans
-    }
-
-    function validateDate(dateStr) {
-        var regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-        var match = dateStr.match(regex);
-        
-        if (!match) return false;
-        
-        var day = parseInt(match[1], 10);
-        var month = parseInt(match[2], 10);
-        var year = parseInt(match[3], 10);
-        
-        if (month < 1 || month > 12) return false;
-        if (day < 1 || day > 31) return false;
-        
-        var date = new Date(year, month - 1, day);
-        return date.getFullYear() === year && 
-               date.getMonth() === month - 1 && 
-               date.getDate() === day;
-    }
-
-    function validateForm() {
-        var isValid = true;
-        
-        // Validation date
-        var dateStr = $('#date_str').val();
-        if (!validateDate(dateStr)) {
-            alert('Format de date invalide. Utilisez DD/MM/YYYY');
-            $('#date_str').focus();
-            return false;
-        }
-        
-        // Validation montants
-        var montantTotal = parseFloat($('#montant_total').val()) || 0;
-        var encaissement = parseFloat($('#encaissement').val()) || 0;
-        
-        if (montantTotal <= 0) {
-            alert('Le montant total doit être supérieur à zéro');
-            $('#montant_total').focus();
-            return false;
-        }
-        
-        if (encaissement > montantTotal) {
-            alert('L\'encaissement ne peut pas être supérieur au montant total');
-            $('#encaissement').focus();
-            return false;
-        }
-        
-        return isValid;
+        // debug
+        console.log('UPDATE_CALC -> montantTotal:', montantTotal, 'encaissement:', encaissement, 'montantCreance:', montantCreance);
     }
 
     function formatMoney(amount) {
         return new Intl.NumberFormat('fr-DZ', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
-        }).format(amount);
+        }).format(amount || 0);
     }
+
+    function calculateAge(dateStr) {
+        if (!dateStr || !validateDate(dateStr)) return 0;
+        var parts = dateStr.split('/');
+        var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
+        var today = new Date(); var age = today.getFullYear() - creanceDate.getFullYear();
+        if (today < new Date(today.getFullYear(), creanceDate.getMonth(), creanceDate.getDate())) { age--; }
+        return Math.max(age, 0); 
+    }
+    function calculateAgeMonths(dateStr) {
+        if (!dateStr || !validateDate(dateStr)) return 0;
+        var parts = dateStr.split('/');
+        var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
+        var today = new Date(); var months = (today.getFullYear() - creanceDate.getFullYear()) * 12;
+        months += today.getMonth() - creanceDate.getMonth(); return Math.max(months, 0); 
+    }
+    function calculateProvisionPercentage(ageMonths) {
+        if (ageMonths >= 60) return 100; // 5 ans ou plus 
+        if (ageMonths >= 36) return 50; // 3-5 ans *
+        if (ageMonths >= 24) return 20; // 2-3 ans 
+        return 0; // Moins de 2 ans 
+    } 
+    function validateDate(dateStr) {
+        var regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+        var match = dateStr.match(regex);
+        if (!match) return false;
+        var day = parseInt(match[1], 10);
+        var month = parseInt(match[2], 10);
+        var year = parseInt(match[3], 10);
+        if (month < 1 || month > 12) return false;
+        if (day < 1 || day > 31) return false;
+        var date = new Date(year, month - 1, day);
+        return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+    }
+    function validateForm() { 
+        var isValid = true;
+        // Validation date 
+        var dateStr = $('#date_str').val();
+        if (!validateDate(dateStr)) { alert('Format de date invalide. Utilisez DD/MM/YYYY');
+            $('#date_str').focus();
+            return false;
+        } 
+        // Validation montants
+        var montantTotal = parseFloat($('#montant_total').val()) || 0;
+        var encaissement = parseFloat($('#encaissement').val()) || 0; if (montantTotal <= 0) { alert('Le montant total doit être supérieur à zéro'); $('#montant_total').focus(); return false; } if (encaissement > montantTotal) { alert('L\'encaissement ne peut pas être supérieur au montant total'); $('#encaissement').focus(); return false; } return isValid; } function formatMoney(amount) { return new Intl.NumberFormat('fr-DZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount); }
+
+    // conserve tes autres fonctions (calculateAge, calculateAgeMonths, calculateProvisionPercentage, validateDate, validateForm)
+    
+    // Fonction pour fermer le modal depuis l'iframe
+    function closeModal() {
+        try {
+            // Envoyer un message au parent pour fermer le modal
+            window.parent.postMessage({type: 'closeModal'}, '*');
+        } catch(e) {
+            console.error('Erreur fermeture modal:', e);
+            // Fallback : si on ne peut pas communiquer avec le parent, recharger la page
+            window.location.href = '../index.php';
+        }
+    }
+
+    // Écouter la touche Escape pour fermer
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && window.parent !== window) {
+            closeModal();
+        }
+    });
     </script>
+
 
     <style>
     .form-container {

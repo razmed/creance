@@ -24,45 +24,18 @@ class Creance {
         $where = ["archived = ?"];
         $params[] = $archived;
         
-        // Recherche textuelle et numérique (combinée)
+        // Recherche textuelle
         if (!empty($search)) {
             $searchFields = [
                 'region', 'secteur', 'client', 'intitule_marche', 
                 'num_facture_situation', 'date_str', 'nature', 'observation'
             ];
-            
-            $searchConditions = [];
-            // Recherche texte (LIKE)
+            $searchWhere = [];
             foreach ($searchFields as $field) {
-                $searchConditions[] = "{$field} LIKE ?";
+                $searchWhere[] = "{$field} LIKE ?";
                 $params[] = "%{$search}%";
             }
-
-            // Normaliser la recherche pour détection numérique (supprimer espaces, convertir virgule->point)
-            $searchNormalized = str_replace([' ', ','], ['', '.'], $search);
-            if ($searchNormalized !== '' && is_numeric($searchNormalized)) {
-                $numLike = "%{$searchNormalized}%";
-                $numExact = (float)$searchNormalized;
-
-                // Colonnes numériques à considérer
-                $numFields = ['montant_total', 'montant_creance', 'encaissement', 'age_annees'];
-
-                // CAST(... AS CHAR) LIKE '%num%' pour recherche partielle
-                foreach ($numFields as $nf) {
-                    $searchConditions[] = "CAST({$nf} AS CHAR) LIKE ?";
-                    $params[] = $numLike;
-                }
-
-                // Comparaison numérique (égalité approx) pour correspondance exacte
-                foreach ($numFields as $nf) {
-                    $searchConditions[] = "ABS({$nf} - ?) < 0.0001";
-                    $params[] = $numExact;
-                }
-            }
-
-            if (!empty($searchConditions)) {
-                $where[] = "(" . implode(" OR ", $searchConditions) . ")";
-            }
+            $where[] = "(" . implode(" OR ", $searchWhere) . ")";
         }
         
         // Filtres spécifiques
@@ -88,11 +61,8 @@ class Creance {
         
         $whereClause = !empty($where) ? "WHERE " . implode(" AND ", $where) : "";
         
-        // ORDER BY date_str (si existe) puis id (évite erreur si updated_at absent)
-        $limit = (int)$limit;
-        $offset = (int)$offset;
         $sql = "SELECT * FROM {$this->table} {$whereClause} 
-                ORDER BY date_str DESC, id DESC 
+                ORDER BY updated_at DESC, id DESC 
                 LIMIT {$limit} OFFSET {$offset}";
         
         $results = $this->db->select($sql, $params);
@@ -113,45 +83,18 @@ class Creance {
         $where = ["archived = ?"];
         $params[] = $archived;
         
-        // Recherche textuelle et numérique (combinée)
+        // Recherche textuelle
         if (!empty($search)) {
             $searchFields = [
                 'region', 'secteur', 'client', 'intitule_marche', 
                 'num_facture_situation', 'date_str', 'nature', 'observation'
             ];
-            
-            $searchConditions = [];
-            // Recherche texte (LIKE)
+            $searchWhere = [];
             foreach ($searchFields as $field) {
-                $searchConditions[] = "{$field} LIKE ?";
+                $searchWhere[] = "{$field} LIKE ?";
                 $params[] = "%{$search}%";
             }
-
-            // Normaliser la recherche pour détection numérique (supprimer espaces, convertir virgule->point)
-            $searchNormalized = str_replace([' ', ','], ['', '.'], $search);
-            if ($searchNormalized !== '' && is_numeric($searchNormalized)) {
-                $numLike = "%{$searchNormalized}%";
-                $numExact = (float)$searchNormalized;
-
-                // Colonnes numériques à considérer
-                $numFields = ['montant_total', 'montant_creance', 'encaissement', 'age_annees'];
-
-                // CAST(... AS CHAR) LIKE '%num%' pour recherche partielle
-                foreach ($numFields as $nf) {
-                    $searchConditions[] = "CAST({$nf} AS CHAR) LIKE ?";
-                    $params[] = $numLike;
-                }
-
-                // Comparaison numérique (égalité approx) pour correspondance exacte
-                foreach ($numFields as $nf) {
-                    $searchConditions[] = "ABS({$nf} - ?) < 0.0001";
-                    $params[] = $numExact;
-                }
-            }
-
-            if (!empty($searchConditions)) {
-                $where[] = "(" . implode(" OR ", $searchConditions) . ")";
-            }
+            $where[] = "(" . implode(" OR ", $searchWhere) . ")";
         }
         
         // Filtres spécifiques
@@ -195,7 +138,6 @@ class Creance {
         return $result;
     }
     
-    // ... le reste du fichier inchangé (add, update, delete, archive, restore, getUniqueValues, getStats, getAnalyticsData, calculateDerivedValues, processData, calculateAgeYears, calculateAgeMonths, calculateProvisionPercentage, validateData)
     /**
      * Ajouter une nouvelle créance
      */
@@ -432,7 +374,7 @@ class Creance {
             throw $e;
         }
     }
-
+    
     /**
      * Obtenir les valeurs uniques pour les filtres
      */
@@ -453,6 +395,9 @@ class Creance {
         }
     }
     
+    /**
+     * Obtenir les statistiques des créances/provisions
+     */
     public function getStats($filters = []) {
         $params = [];
         $where = ["archived = 0"];
@@ -529,7 +474,8 @@ class Creance {
         }
         
         return $this->db->select($sql);
-    }    
+    }
+    
     /**
      * Calculer les valeurs dérivées (âge, provisions, etc.)
      */
@@ -549,6 +495,9 @@ class Creance {
         return $data;
     }
     
+    /**
+     * Traiter les données avant insertion/mise à jour
+     */
     private function processData($data) {
         // Nettoyer et valider les données
         $processed = [];
@@ -576,6 +525,9 @@ class Creance {
         return $processed;
     }
     
+    /**
+     * Calculer l'âge en années
+     */
     private function calculateAgeYears($dateStr) {
         try {
             $date = DateTime::createFromFormat('d/m/Y', $dateStr);
@@ -591,6 +543,9 @@ class Creance {
         }
     }
     
+    /**
+     * Calculer l'âge en mois
+     */
     private function calculateAgeMonths($dateStr) {
         try {
             $date = DateTime::createFromFormat('d/m/Y', $dateStr);
@@ -607,6 +562,9 @@ class Creance {
         }
     }
     
+    /**
+     * Calculer le pourcentage de provision selon l'âge en mois
+     */
     private function calculateProvisionPercentage($ageMonths) {
         if ($ageMonths >= 60) {      // 5 ans ou plus
             return 100;
@@ -619,6 +577,9 @@ class Creance {
         }
     }
     
+    /**
+     * Valider les données d'une créance
+     */
     private function validateData($data) {
         $errors = [];
         
