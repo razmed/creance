@@ -154,6 +154,7 @@ if (isset($_GET['message'])) {
                     <!-- Barre de recherche -->
                     <div class="search-container">
                         <input type="text" id="searchInput" placeholder="Rechercher..." class="search-input">
+                        <button type="button" id="searchBtn" class="search-icon-btn" title="Lancer la recherche"></button>
                         <i class="fas fa-search search-icon"></i>
                     </div>
                 <?php endif; ?>
