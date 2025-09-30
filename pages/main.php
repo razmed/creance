@@ -210,8 +210,8 @@ try {
                                         <button class="btn-action btn-edit" onclick="editCreance(<?php echo $ligne['id']; ?>)" title="Modifier">
                                             <i class="fas fa-edit"></i>
                                         </button>
-                                        <button class="btn-action btn-delete" onclick="archiveCreance(<?php echo $ligne['id']; ?>)" title="Archiver">
-                                            <i class="fas fa-trash"></i>
+                                        <button class="btn-action btn-archive" onclick="archiveCreance(<?php echo $ligne['id']; ?>)" title="Archiver">
+                                            <i class="fas fa-archive"></i>
                                         </button>
                                     </div>
                                 </td>
@@ -315,9 +315,74 @@ try {
     </div>
 </div>
 
+<!-- Modal/Form card (iframe) -->
+<style>
+#formModalIframeBG {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 1200;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  backdrop-filter: blur(2px);
+}
+
+iframe#formIframe {
+    height: -webkit-fill-available;
+}
+
+#formModalIframe {
+  background: #fff;
+  width: 100%;
+  max-width: 980px;
+  height: 85vh;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  border: none;
+}
+
+@media (max-width: 768px) {
+  #formModalIframe {
+    width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    max-width: none;
+  }
+  
+  #formModalIframeBG {
+    padding: 0;
+  }
+}
+</style>
+
+<div id="formModalIframeBG" role="dialog" aria-hidden="true">
+    <div style="background: #fff; width: 100%; max-width: 980px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column; overflow: hidden; height: 92vh;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid #e0e0e0; background: linear-gradient(135deg, #f8f9fa, #e9ecef); flex-shrink: 0;">
+            <strong id="formModalTitle" style="font-size: 1.2rem; font-weight: 600; color: #2c3e50; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-file-alt" style="color: var(--primary-color);"></i>
+                Formulaire
+            </strong>
+            <div style="display: flex; gap: 0.5rem;">
+                <button onclick="document.getElementById('formIframe').contentWindow.location.reload();" title="Recharger le formulaire" style="background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem 0.75rem; cursor: pointer; transition: all 0.3s; font-size: 1.1rem;">
+                    <i class="fas fa-sync-alt"></i>
+                </button>
+                <button onclick="closeFormModal()" title="Fermer" style="background: transparent; border: none; font-size: 1.5rem; cursor: pointer; padding: 0.25rem 0.5rem; color: #666; transition: color 0.3s;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+        <iframe id="formIframe" src="" title="Formulaire créance" style="width: 100%; flex: 1; border: none;"></iframe>
+    </div>
+</div>
+
 <script>
 
-// Fonction de debug pour inspecter les réponses
+// ============================================
+// VARIABLES GLOBALES
+// ============================================
+
 function debugAjaxResponse(stage, data) {
     console.log('=== DEBUG AJAX ===');
     console.log('Stage:', stage);
@@ -332,258 +397,299 @@ function debugAjaxResponse(stage, data) {
     }
     console.log('==================');
 }
-// Variables globales pour cette page
+
 let currentSort = null;
 let sortDirection = 'asc';
 let activeFilters = <?php echo json_encode($filters); ?>;
 
-console.log(activeFilters)
+let searchTimeout = null;
+let lastSearchValue = '';
+let isSearching = false;
 
-// Fonction pour ouvrir le formulaire d'ajout
-function openFormModal() {
-    const iframe = document.getElementById('formIframe');
-    document.getElementById('formModalTitle').textContent = 'Ajouter une créance';
-    // charger form.php (affiche la page complète à l'intérieur de l'iframe)
-    iframe.src = 'pages/form.php?action=add&embedded=1';
-    document.getElementById('formModalIframeBG').style.display = 'flex';
-}
+console.log('Filtres initiaux:', activeFilters);
 
-// Fonction pour éditer une créance
-function editCreance(id) {
-    const iframe = document.getElementById('formIframe');
-    document.getElementById('formModalTitle').textContent = 'Modifier une créance';
-    iframe.src = `pages/form.php?action=edit&id=${id}&embedded=1`;
-    document.getElementById('formModalIframeBG').style.display = 'flex';
-}
+// ============================================
+// INITIALISATION AU CHARGEMENT DE LA PAGE
+// ============================================
 
-// Fermer la modal
-function closeFormModal() {
-    const bg = document.getElementById('formModalIframeBG');
-    const iframe = document.getElementById('formIframe');
-    bg.style.display = 'none';
-    // vider la source pour arrêter les scripts et la requête
-    iframe.src = 'about:blank';
-}
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Page chargée - Initialisation des événements de recherche');
+    initSearchEvents();
+});
 
-// Ecouter les messages postMessage depuis l'iframe (form.php)
-window.addEventListener('message', function(ev) {
-    // vérification simple : s'assurer que c'est un message objet et contient un type
-    try {
-        const data = (typeof ev.data === 'string') ? JSON.parse(ev.data) : ev.data;
-        if (!data || !data.type) return;
-
-        if (data.type === 'creanceSaved') {
-            // masquer modal, recharger tableau
-            closeFormModal();
-            // recharge les données via ton AJAX
-            reloadTableData();
-            // optionnel : afficher notification
-            console.log('Créance sauvegardée (id=', data.id, ')');
-        }
-    } catch (e) {
-        // ignore non-json messages
-        console.warn('Message reçu invalide', e);
-    }
-}, false);
-
-// Écouter les messages postMessage depuis l'iframe (form.php)
-window.addEventListener('message', function(ev) {
-    try {
-        const data = (typeof ev.data === 'string') ? JSON.parse(ev.data) : ev.data;
-        if (!data || !data.type) return;
-
-        if (data.type === 'creanceSaved') {
-            // Créance sauvegardée : fermer modal et recharger
-            closeFormModal();
-            reloadTableData();
-            
-            // Afficher notification de succès
-            showNotification('Créance enregistrée avec succès', 'success');
-            console.log('Créance sauvegardée (id=', data.id, ')');
-        } 
-        else if (data.type === 'closeModal') {
-            // Demande de fermeture du modal depuis l'iframe
-            closeFormModal();
-        }
-    } catch (e) {
-        console.warn('Message reçu invalide', e);
-    }
-}, false);
-
-// Fonction pour archiver une créance
-function archiveCreance(id) {
-    showConfirm(
-        'Confirmer l\'archivage',
-        'Êtes-vous sûr de vouloir archiver cette créance ? Elle sera déplacée vers l\'archive.',
-        () => {
-            const form = document.createElement('form');
-            form.method = 'POST';
-            form.innerHTML = `
-                <input type="hidden" name="action" value="archive">
-                <input type="hidden" name="id" value="${id}">
-            `;
-            document.body.appendChild(form);
-            form.submit();
-        }
-    );
-}
-
-// Fonction pour trier le tableau
-function sortTable(column) {
-    if (currentSort === column) {
-        sortDirection === 'asc' ? 'desc' : 'asc';
-    } else {
-        currentSort = column;
-        sortDirection = 'asc';
+function initSearchEvents() {
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    
+    if (!searchInput || !searchBtn) {
+        console.warn('Éléments de recherche non trouvés');
+        return;
     }
     
-    const params = new URLSearchParams(window.location.search);
-    params.set('sort', column);
-    params.set('dir', sortDirection);
-    window.location.search = params.toString();
+    console.log('Initialisation des événements de recherche...');
+    
+    searchBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        console.log('Clic sur bouton loupe');
+        performSearch(true);
+    });
+    
+    searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            console.log('Touche Entrée pressée');
+            performSearch(true);
+        } else if (e.key === 'Escape') {
+            console.log('Touche Escape pressée');
+            clearSearch();
+        }
+    });
+    
+    searchInput.addEventListener('input', function(e) {
+        console.log('Input changé:', e.target.value);
+        performSearch(false);
+    });
+    
+    searchInput.addEventListener('focus', function() {
+        this.select();
+    });
+    
+    console.log('Événements de recherche initialisés avec succès');
 }
 
-// Fonction pour changer la taille de page
-function changePageSize(size) {
-    const params = new URLSearchParams(window.location.search);
-    params.set('limit', size);
-    params.set('page', 1);
-    window.location.search = params.toString();
-}
+// ============================================
+// FONCTION PRINCIPALE DE RECHERCHE
+// ============================================
 
-// Fonction pour afficher le modal des stats
-function showStatsModal() {
-    document.getElementById('statsModal').style.display = 'flex';
-}
-
-function closeStatsModal() {
-    document.getElementById('statsModal').style.display = 'none';
-}
-
-// Fonction pour exporter en PDF
-function exportPDF() {
-    const includeCharts = confirm('Voulez-vous inclure des graphiques dans le PDF ?');
-    window.location.href = `pages/ajax/generate_pdf.php?charts=${includeCharts ? '1' : '0'}`;
-}
-
-// Fonction pour exporter en Excel
-function exportExcel() {
-    window.location.href = 'pages/ajax/export_excel.php';
-}
-
-// Fonction pour exporter en CSV
-function exportCSV() {
-    window.location.href = 'pages/ajax/export_csv.php';
-}
-
-// Fonction pour réinitialiser les filtres
-function resetFilters() {
-    // Vide l'objet de filtres côté client
-    activeFilters = {};
-
-    // Recocher toutes les cases côté UI
-    document.querySelectorAll('.filter-option input[type="checkbox"]').forEach(cb => cb.checked = true);
-
-    // Remettre le texte des boutons à "Tous"
-    <?php foreach (COLONNES_FILTRABLES as $col): ?>
-        const lbl_<?php echo $col; ?> = document.getElementById('filter-<?php echo $col; ?>-text');
-        if (lbl_<?php echo $col; ?>) lbl_<?php echo $col; ?>.textContent = 'Tous';
-    <?php endforeach; ?>
-
-    // Vider la recherche (input)
+function performSearch(immediate = false) {
     const searchInput = document.getElementById('searchInput');
-    if (searchInput) {
-        searchInput.value = '';
+    
+    if (!searchInput) {
+        console.error('Input de recherche introuvable');
+        return;
     }
+    
+    const searchValue = searchInput.value.trim();
+    
+    console.log('performSearch appelé - immediate:', immediate, 'valeur:', searchValue);
+    
+    if (searchValue === lastSearchValue && isSearching) {
+        console.log('Recherche déjà en cours pour cette valeur, ignoré');
+        return;
+    }
+    
+    if (searchTimeout) {
+        clearTimeout(searchTimeout);
+    }
+    
+    if (immediate) {
+        console.log('Recherche immédiate');
+        executeSearch(searchValue);
+    } else {
+        console.log('Recherche avec délai de 500ms');
+        searchTimeout = setTimeout(function() {
+            executeSearch(searchValue);
+        }, 500);
+    }
+}
 
-    // Supprimer les indicateurs visuels (si présents)
-    const searchIndicator = document.querySelector('.search-indicator');
-    if (searchIndicator) searchIndicator.remove();
-    const filterIndicator = document.querySelector('.filter-indicator');
-    if (filterIndicator) filterIndicator.remove();
-
-    // Mettre à jour l'URL : supprimer `search` et remettre page=1 (sans recharger la page)
-    const params = new URLSearchParams(window.location.search);
-    params.delete('search');
-    params.set('page', 1);
-    const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
-    window.history.replaceState({}, '', newUrl);
-
-    // Vider aussi les filtres côté serveur (session) puis recharger le tableau
-    fetch('pages/ajax/set_filters.php', {
-        method: 'POST',
+function executeSearch(searchValue) {
+    const searchInput = document.getElementById('searchInput');
+    const searchBtn = document.getElementById('searchBtn');
+    
+    console.log('executeSearch - Début avec valeur:', searchValue);
+    
+    lastSearchValue = searchValue;
+    isSearching = true;
+    
+    if (searchInput) {
+        searchInput.classList.add('searching');
+        searchInput.classList.remove('has-results', 'no-results');
+    }
+    
+    if (searchBtn) {
+        searchBtn.classList.add('searching');
+        searchBtn.disabled = true;
+    }
+    
+    const normalizedSearch = normalizeSearchInput(searchValue);
+    console.log('Recherche normalisée:', normalizedSearch);
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const page = urlParams.get('page') || 1;
+    const limit = urlParams.get('limit') || <?php echo ITEMS_PER_PAGE; ?>;
+    
+    const params = {
+        filters: JSON.stringify(convertFiltersToBackend(activeFilters)),
+        search: normalizedSearch,
+        page: 1,
+        limit: limit,
+        archived: 0,
+        get_unique_values: '0'
+    };
+    
+    const queryString = new URLSearchParams(params).toString();
+    const url = 'pages/ajax/search_filter.php?' + queryString;
+    
+    console.log('URL de recherche:', url);
+    
+    showLoader();
+    
+    fetch(url, {
+        method: 'GET',
         headers: {
             'Content-Type': 'application/json',
             'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({filters: {}})
-    })
-    .then(resp => resp.json().catch(() => ({success: true}))) // tolérance si la réponse n'est pas JSON
-    .then(response => {
-        // Recharger les données du tableau (reloadTableData gère le loader)
-        reloadTableData();
-    })
-    .catch(err => {
-        console.error('resetFilters - erreur set_filters:', err);
-        // On recharge quand même le tableau pour rester résilient
-        reloadTableData();
-    });
-}
-
-
-// Gestion des filtres dropdown
-function toggleFilterDropdown(column) {
-    const dropdown = document.getElementById(`filter-${column}-options`);
-    const isVisible = dropdown.style.display === 'block';
-    
-    // Fermer tous les dropdowns
-    document.querySelectorAll('.filter-options').forEach(d => d.style.display = 'none');
-    
-    // Ouvrir/fermer le dropdown ciblé
-    dropdown.style.display = isVisible ? 'none' : 'block';
-}
-
-function filterOptions(column, searchText) {
-    const list = document.getElementById(`filter-${column}-list`);
-    const options = list.querySelectorAll('.filter-option');
-    
-    options.forEach(option => {
-        const text = option.textContent.toLowerCase();
-        option.style.display = text.includes(searchText.toLowerCase()) ? 'block' : 'none';
-    });
-}
-
-function selectAllOptions(column, checked) {
-    const checkboxes = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`);
-    checkboxes.forEach(cb => {
-        if (cb.parentElement.style.display !== 'none') {
-            cb.checked = checked;
         }
+    })
+    .then(response => {
+        console.log('Réponse reçue - Status:', response.status);
+        return response.text();
+    })
+    .then(text => {
+        console.log('Texte de réponse:', text.substring(0, 200) + '...');
+        
+        try {
+            const data = JSON.parse(text);
+            debugAjaxResponse('Après parsing JSON', data);
+            
+            hideLoader();
+            isSearching = false;
+            
+            if (searchInput) {
+                searchInput.classList.remove('searching');
+            }
+            if (searchBtn) {
+                searchBtn.classList.remove('searching');
+                searchBtn.disabled = false;
+            }
+            
+            if (data.success) {
+                console.log('Recherche réussie:', data.data.creances.length, 'résultats');
+                
+                if (data.data.creances.length > 0) {
+                    if (searchInput) searchInput.classList.add('has-results');
+                } else {
+                    if (searchInput) searchInput.classList.add('no-results');
+                }
+                
+                updateTableContent(data.data.creances);
+                
+                if (data.data.pagination) {
+                    updatePaginationInfo(data.data.pagination);
+                    updateResultsCount(data.data.pagination.total_count);
+                }
+                
+                updateSearchIndicator(searchValue, data.data.pagination.total_count);
+                
+            } else {
+                console.error('Erreur recherche:', data.error);
+                alert('Erreur lors de la recherche: ' + data.error);
+                
+                if (searchInput) searchInput.classList.add('no-results');
+            }
+            
+        } catch (e) {
+            console.error('Erreur parsing JSON:', e);
+            console.error('Texte reçu:', text);
+            
+            hideLoader();
+            isSearching = false;
+            
+            if (searchInput) {
+                searchInput.classList.remove('searching');
+                searchInput.classList.add('no-results');
+            }
+            if (searchBtn) {
+                searchBtn.classList.remove('searching');
+                searchBtn.disabled = false;
+            }
+            
+            alert('Erreur: Réponse serveur invalide');
+        }
+    })
+    .catch(error => {
+        console.error('Exception recherche:', error);
+        
+        hideLoader();
+        isSearching = false;
+        
+        if (searchInput) {
+            searchInput.classList.remove('searching');
+            searchInput.classList.add('no-results');
+        }
+        if (searchBtn) {
+            searchBtn.classList.remove('searching');
+            searchBtn.disabled = false;
+        }
+        
+        alert('Erreur de connexion: ' + error.message);
     });
 }
 
-// normalise la recherche côté client
+function updateSearchIndicator(searchValue, resultCount) {
+    const oldIndicator = document.querySelector('.search-indicator');
+    if (oldIndicator) {
+        oldIndicator.remove();
+    }
+    
+    if (searchValue) {
+        const toolbar = document.querySelector('.toolbar-right .results-info');
+        if (toolbar) {
+            const indicator = document.createElement('span');
+            indicator.className = 'search-indicator';
+            indicator.innerHTML = `
+                <i class="fas fa-search"></i> 
+                "${escapeHtml(searchValue)}" 
+                (${resultCount} résultat${resultCount > 1 ? 's' : ''})
+                <button type="button" onclick="clearSearch()" class="clear-search-btn" title="Effacer la recherche">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+            toolbar.appendChild(indicator);
+        }
+    }
+}
+
+function clearSearch() {
+    console.log('clearSearch appelé');
+    
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.classList.remove('has-results', 'no-results', 'searching');
+    }
+    
+    const indicator = document.querySelector('.search-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+    
+    performSearch(true);
+}
+
 function normalizeSearchInput(s) {
     if (!s) return '';
     let t = s.trim();
 
-    // si la chaîne contient uniquement chiffres, espaces, virgules, points, +/-
     if (/^[\d\s.,+-]+$/.test(t)) {
-        t = t.replace(/\s+/g, ''); // supprime espaces (ex: "1 234")
-        t = t.replace(/,/g, '.');  // transforme "123,45" => "123.45"
+        t = t.replace(/\s+/g, '');
+        t = t.replace(/,/g, '.');
     }
 
     return t;
 }
 
-// Fonction pour recharger uniquement les données du tableau via AJAX
+// ============================================
+// FONCTIONS DE MISE À JOUR DU TABLEAU
+// ============================================
+
 function reloadTableData() {
     console.log('reloadTableData - DÉBUT');
     console.log('reloadTableData - activeFilters:', activeFilters);
-    console.log('activeFilters stringified:', JSON.stringify(convertFiltersToBackend(activeFilters)))
     
     const rawSearch = document.getElementById('searchInput') ? document.getElementById('searchInput').value : '';
-    const normalizedSearch = normalizeSearchInput(rawSearch); // <-- utilisation
+    const normalizedSearch = normalizeSearchInput(rawSearch);
     const urlParams = new URLSearchParams(window.location.search);
 
     const page = urlParams.get('page') || 1;
@@ -598,11 +704,10 @@ function reloadTableData() {
         get_unique_values: '0'
     };
     
-    console.log('reloadTableData - Params à envoyer:', params);
+    console.log('reloadTableData - Params:', params);
     
     const queryString = new URLSearchParams(params).toString();
     const url = 'pages/ajax/search_filter.php?' + queryString;
-    console.log('reloadTableData - URL:', url);
     
     showLoader();
     
@@ -613,63 +718,41 @@ function reloadTableData() {
             'X-Requested-With': 'XMLHttpRequest'
         }
     })
-    .then(response => {
-        console.log('reloadTableData - Response status:', response.status);
-        console.log('reloadTableData - Response headers:', response.headers);
-        return response.text(); // Lire d'abord en texte pour voir le contenu
-    })
+    .then(response => response.text())
     .then(text => {
-        console.log('reloadTableData - Response text:', text);
         try {
             const data = JSON.parse(text);
-            debugAjaxResponse('Après parsing JSON', data);
             
             hideLoader();
             
             if (data.success) {
-                console.log('reloadTableData - SUCCESS');
-                console.log('data filtered:', data.data.creances)
                 updateTableContent(data.data.creances);
                 
                 if (data.data.pagination) {
                     updatePaginationInfo(data.data.pagination);
                     updateResultsCount(data.data.pagination.total_count);
                 }
-            } else {
-                console.error('reloadTableData - ÉCHEC:', data.error);
-                alert('Erreur: ' + data.error);
+            } else {alert('Erreur: ' + data.error);
             }
         } catch (e) {
-            console.error('reloadTableData - Erreur de parsing JSON:', e);
-            console.error('reloadTableData - Texte reçu:', text);
             hideLoader();
             alert('Erreur: Réponse serveur invalide');
         }
     })
     .catch(error => {
         hideLoader();
-        console.error('reloadTableData - Exception:', error);
-        alert('Erreur lors du chargement des données: ' + error.message);
+        alert('Erreur de connexion: ' + error.message);
     });
 }
 
-// Fonction pour mettre à jour le contenu du tableau
 function updateTableContent(creances) {
-    console.log('updateTableContent - Début, nombre de créances:', creances ? creances.length : 0);
-    
     const tbody = document.querySelector('#creancesTable tbody');
     
-    if (!tbody) {
-        console.error('Tableau non trouvé - #creancesTable tbody');
-        return;
-    }
+    if (!tbody) return;
     
-    // Vider le tbody
     tbody.innerHTML = '';
     
-    // Si aucune donnée
     if (!creances || creances.length === 0) {
-        console.log('updateTableContent - Aucune créance à afficher');
         const emptyRow = document.createElement('tr');
         emptyRow.innerHTML = `
             <td colspan="15" style="text-align: center; padding: 2rem;">
@@ -684,17 +767,11 @@ function updateTableContent(creances) {
         return;
     }
     
-    console.log('updateTableContent - Ajout de', creances.length, 'lignes');
-    
-    // Ajouter les lignes
-    creances.forEach((ligne, index) => {
-        console.log('updateTableContent - Ligne', index, ':', ligne);
-        
+    creances.forEach((ligne) => {
         const tr = document.createElement('tr');
         tr.setAttribute('data-id', ligne.id);
         tr.setAttribute('data-version', ligne.version);
         
-        // Construire le HTML de la ligne
         const observationHtml = ligne.observation ? 
             `<span class="badge badge-${getBadgeClass(ligne.observation)}">${escapeHtml(ligne.observation)}</span>` : 
             '';
@@ -726,20 +803,14 @@ function updateTableContent(creances) {
                     <button class="btn-action btn-archive" onclick="archiveCreance(${ligne.id})" title="Archiver">
                         <i class="fas fa-archive"></i>
                     </button>
-                    <button class="btn-action btn-delete" onclick="deleteCreance(${ligne.id})" title="Supprimer">
-                        <i class="fas fa-trash"></i>
-                    </button>
                 </div>
             </td>
         `;
         
         tbody.appendChild(tr);
     });
-    
-    console.log('updateTableContent - Terminé');
 }
 
-// Fonction pour mettre à jour les informations de pagination
 function updatePaginationInfo(pagination) {
     const infoElement = document.querySelector('.pagination-info');
     if (infoElement) {
@@ -747,7 +818,6 @@ function updatePaginationInfo(pagination) {
     }
 }
 
-// Fonction pour mettre à jour le compteur de résultats
 function updateResultsCount(count) {
     const countElement = document.querySelector('.results-count');
     if (countElement) {
@@ -755,7 +825,10 @@ function updateResultsCount(count) {
     }
 }
 
-// Fonctions utilitaires
+// ============================================
+// FONCTIONS UTILITAIRES
+// ============================================
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
@@ -784,7 +857,6 @@ function getBadgeClass(observation) {
     }
 }
 
-// Afficher/masquer le loader
 function showLoader() {
     let loader = document.getElementById('tableLoader');
     if (!loader) {
@@ -809,6 +881,173 @@ function hideLoader() {
     }
 }
 
+// ============================================
+// FONCTIONS FORMULAIRE ET MODAL
+// ============================================
+
+function openFormModal() {
+    document.getElementById('formModalTitle').textContent = 'Ajouter une créance';
+    document.getElementById('formIframe').src = 'pages/form.php?action=add&embedded=1';
+    document.getElementById('formModalIframeBG').style.display = 'flex';
+}
+
+function editCreance(id) {
+    document.getElementById('formModalTitle').textContent = 'Modifier une créance';
+    document.getElementById('formIframe').src = `pages/form.php?action=edit&id=${id}&embedded=1`;
+    document.getElementById('formModalIframeBG').style.display = 'flex';
+}
+
+function closeFormModal() {
+    document.getElementById('formModalIframeBG').style.display = 'none';
+    document.getElementById('formIframe').src = 'about:blank';
+}
+
+window.addEventListener('message', function(ev) {
+    try {
+        const data = (typeof ev.data === 'string') ? JSON.parse(ev.data) : ev.data;
+        if (!data || !data.type) return;
+
+        if (data.type === 'creanceSaved') {
+            closeFormModal();
+            reloadTableData();
+            showNotification('Créance enregistrée avec succès', 'success');
+        } 
+        else if (data.type === 'closeModal') {
+            closeFormModal();
+        }
+    } catch (e) {
+        console.warn('Message reçu invalide', e);
+    }
+}, false);
+
+function archiveCreance(id) {
+    showConfirm(
+        'Confirmer l\'archivage',
+        'Êtes-vous sûr de vouloir archiver cette créance ?',
+        () => {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.innerHTML = `
+                <input type="hidden" name="action" value="archive">
+                <input type="hidden" name="id" value="${id}">
+            `;
+            document.body.appendChild(form);
+            form.submit();
+        }
+    );
+}
+
+function sortTable(column) {
+    if (currentSort === column) {
+        sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSort = column;
+        sortDirection = 'asc';
+    }
+    
+    const params = new URLSearchParams(window.location.search);
+    params.set('sort', column);
+    params.set('dir', sortDirection);
+    window.location.search = params.toString();
+}
+
+function changePageSize(size) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('limit', size);
+    params.set('page', 1);
+    window.location.search = params.toString();
+}
+
+function showStatsModal() {
+    document.getElementById('statsModal').style.display = 'flex';
+}
+
+function closeStatsModal() {
+    document.getElementById('statsModal').style.display = 'none';
+}
+
+function exportPDF() {
+    const includeCharts = confirm('Voulez-vous inclure des graphiques dans le PDF ?');
+    window.location.href = `pages/ajax/generate_pdf.php?charts=${includeCharts ? '1' : '0'}`;
+}
+
+function exportExcel() {
+    window.location.href = 'pages/ajax/export_excel.php';
+}
+
+function exportCSV() {
+    window.location.href = 'pages/ajax/export_csv.php';
+}
+
+// ============================================
+// FONCTIONS FILTRES
+// ============================================
+
+function resetFilters() {
+    activeFilters = {};
+    document.querySelectorAll('.filter-option input[type="checkbox"]').forEach(cb => cb.checked = true);
+    
+    <?php foreach (COLONNES_FILTRABLES as $col): ?>
+        const lbl_<?php echo $col; ?> = document.getElementById('filter-<?php echo $col; ?>-text');
+        if (lbl_<?php echo $col; ?>) lbl_<?php echo $col; ?>.textContent = 'Tous';
+    <?php endforeach; ?>
+
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.value = '';
+        searchInput.classList.remove('has-results', 'no-results');
+    }
+
+    const searchIndicator = document.querySelector('.search-indicator');
+    if (searchIndicator) searchIndicator.remove();
+    
+    const filterIndicator = document.querySelector('.filter-indicator');
+    if (filterIndicator) filterIndicator.remove();
+
+    const params = new URLSearchParams(window.location.search);
+    params.delete('search');
+    params.set('page', 1);
+    const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    window.history.replaceState({}, '', newUrl);
+
+    fetch('pages/ajax/set_filters.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({filters: {}})
+    })
+    .then(() => reloadTableData())
+    .catch(() => reloadTableData());
+}
+
+function toggleFilterDropdown(column) {
+    const dropdown = document.getElementById(`filter-${column}-options`);
+    const isVisible = dropdown.style.display === 'block';
+    
+    document.querySelectorAll('.filter-options').forEach(d => d.style.display = 'none');
+    dropdown.style.display = isVisible ? 'none' : 'block';
+}
+
+function filterOptions(column, searchText) {
+    const list = document.getElementById(`filter-${column}-list`);
+    const options = list.querySelectorAll('.filter-option');
+    
+    options.forEach(option => {
+        const text = option.textContent.toLowerCase();
+        option.style.display = text.includes(searchText.toLowerCase()) ? 'block' : 'none';
+    });
+}
+
+function selectAllOptions(column, checked) {
+    const checkboxes = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`);
+    checkboxes.forEach(cb => {
+        if (cb.parentElement.style.display !== 'none') {
+            cb.checked = checked;
+        }
+    });
+}
 
 function updateFilter(column) {
     // Cette fonction est appelée quand une checkbox change
@@ -828,18 +1067,16 @@ function convertFiltersToBackend(filters) {
         const backendKey = COLUMN_MAPPING[key] || key;
         converted[backendKey] = value;
     }
-    console.log('Filtres convertis:', converted);
     return converted;
 }
 
 function applyFilter(column) {
     const checkboxes = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]:checked`);
     const values = Array.from(checkboxes).map(cb => cb.value);
-    console.log(values)
     const totalOptions = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`).length;
     
     if (values.length === 0) {
-        activeFilters[column] = []; // Empty array to indicate "none"
+        activeFilters[column] = [];
         document.getElementById(`filter-${column}-text`).textContent = 'Aucun';
     } else if (values.length === totalOptions) {
         delete activeFilters[column];
@@ -849,13 +1086,9 @@ function applyFilter(column) {
         document.getElementById(`filter-${column}-text`).textContent = `${values.length} sélectionné(s)`;
     }
     
-    // Fermer le dropdown
     toggleFilterDropdown(column);
-    
-    // Afficher un loader
     showLoader();
 
-    // Envoyer les filtres au serveur via AJAX et recharger seulement le tableau
     fetch('pages/ajax/set_filters.php', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -864,7 +1097,6 @@ function applyFilter(column) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            // Recharger SEULEMENT le tableau via AJAX
             reloadTableData();
         } else {
             hideLoader();
@@ -879,20 +1111,12 @@ function applyFilter(column) {
 }
 
 function clearFilter(column) {
-    // Décocher toutes les cases de ce filtre
     document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`).forEach(cb => cb.checked = false);
-
-    // Mettre à jour l'objet activeFilters
     activeFilters[column] = [];
-
-    // Mettre le label à "Tous"
     document.getElementById(`filter-${column}-text`).textContent = 'Tous';
-
-    // Recharger le tableau
     reloadTableData();
 }
 
-// Toggle filters visibility
 function toggleFilters() {
     const content = document.getElementById('filtersContent');
     const toggle = document.getElementById('filtersToggle');
@@ -908,7 +1132,6 @@ function toggleFilters() {
     }
 }
 
-// Dropdown toggle
 function toggleDropdown(id) {
     const dropdown = document.getElementById(id);
     dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
@@ -923,153 +1146,4 @@ document.addEventListener('click', function(event) {
     }
 });
 
-// Recherche en temps réel
-document.getElementById('searchInput')?.addEventListener('keyup', function(e) {
-    if (e.key === 'Enter') {
-        const params = new URLSearchParams(window.location.search);
-        params.set('search', this.value);
-        params.set('page', 1);
-        window.location.search = params.toString();
-    }
-});
 </script>
-
-<!-- Modal/Form card (iframe) -->
-<style>
-/* styles simples pour la "card" modal */
-#formModalIframeBG {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.45);
-  z-index: 1200;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  backdrop-filter: blur(2px);
-}
-
-iframe#formIframe {
-    height: -webkit-fill-available;
-}
-
-#formModalContainer {
-  background: #fff;
-  width: 95vw;
-  max-width: 1400px;
-  height: 92vh;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-#formModalIframe {
-  background: #fff;
-  width: 100%;
-  max-width: 980px;
-  height: 85vh;
-  border-radius: 12px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-  border: none;
-}
-
-#formModalCardHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid #e0e0e0;
-  background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-  flex-shrink: 0;
-}
-
-#formModalTitle {
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: #2c3e50;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-#formModalTitle i {
-  color: var(--primary-color);
-}
-
-/* Boutons du header */
-#formModalCardHeader > div {
-  display: flex;
-  gap: 0.5rem;
-}
-
-#formModalReloadBtn {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-  transition: all 0.3s;
-  font-size: 1.1rem;
-}
-
-#formModalReloadBtn:hover {
-  background: #f8f9fa;
-  border-color: var(--primary-color);
-  color: var(--primary-color);
-}
-
-#formModalCardClose {
-  background: transparent;
-  border: none;
-  font-size: 1.5rem;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  color: #666;
-  transition: color 0.3s;
-}
-
-#formModalCardClose:hover {
-  color: var(--danger-color);
-}
-
-@media (max-width: 768px) {
-  #formModalContainer {
-    width: 100%;
-    height: 100vh;
-    border-radius: 0;
-    max-width: none;
-  }
-  
-  #formModalIframeBG {
-    padding: 0;
-  }
-}
-</style>
-
-<div id="formModalIframeBG" role="dialog" aria-hidden="true">
-  <div id="formModalContainer">
-    <div id="formModalCardHeader">
-      <strong id="formModalTitle">
-        <i class="fas fa-file-alt"></i>
-        Formulaire
-      </strong>
-      <div>
-        <button id="formModalReloadBtn" 
-                class="btn btn-sm btn-secondary" 
-                onclick="document.getElementById('formIframe').contentWindow.location.reload();"
-                title="Recharger le formulaire">
-          <i class="fas fa-sync-alt"></i>
-        </button>
-        <button id="formModalCardClose" 
-                onclick="closeFormModal()"
-                title="Fermer">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-    </div>
-
-    <iframe id="formIframe" src="" title="Formulaire créance"></iframe>
-  </div>
-</div>
