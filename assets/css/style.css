@@ -1115,3 +1115,19 @@ body {
         margin-top: 0.5rem;
     }
 }
+
+/* ============================================
+   CORRECTIONS POUR L'ÉTAT VIDE DE LA BARRE DE RECHERCHE
+   ============================================ */
+
+/* Force le retour à l'état par défaut quand la barre est vide (placeholder visible) */
+.search-input:placeholder-shown {
+    border-color: var(--border-color) !important;
+    background: white !important;
+}
+
+/* Force le bleu sur focus quand vide */
+.search-input:focus:placeholder-shown {
+    border-color: var(--primary-color) !important;
+    background: white !important;
+}
