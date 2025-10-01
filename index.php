@@ -104,6 +104,7 @@ if (isset($_GET['message'])) {
     
     <!-- CSS -->
     <link rel="stylesheet" href="assets/css/style.css">
+    <link rel="stylesheet" href="assets/css/pdf-dialog.css">
     
     <!-- Font Awesome pour les icônes -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -113,6 +114,9 @@ if (isset($_GET['message'])) {
     
     <!-- jQuery -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+
+    <!-- JavaScript pour le dialogue PDF -->
+    <script src="assets/js/pdf-dialog.js"></script>
 </head>
 <body>
     <!-- En-tête de l'application -->

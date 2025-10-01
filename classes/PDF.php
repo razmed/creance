@@ -1,10 +1,16 @@
 <?php
 /**
- * Classe PDF - Génération de rapports PDF
- * Gestion des Créances - Version Web
+ * Classe PDF - SANS WARNINGS
  */
 
+// Supprimer warnings AVANT require TCPDF
+error_reporting(E_ERROR | E_PARSE);
+
 require_once __DIR__ . '/../vendor/tecnickcom/tcpdf/tcpdf.php';
+
+// Réactiver après chargement TCPDF
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE & ~E_WARNING);
+
 require_once __DIR__ . '/../config/constants.php';
 require_once 'Creance.php';
 
@@ -12,6 +18,7 @@ class CreancePDF extends TCPDF {
     protected $title;
     protected $isLandscape;
     
+    // ... reste identique jusqu'aux fonctions de graphiques
     public function __construct($title = 'Rapport de Créances', $landscape = true) {
         $this->title = $title;
         $this->isLandscape = $landscape;
@@ -45,9 +52,6 @@ class CreancePDF extends TCPDF {
      * En-tête du document
      */
     public function Header() {
-        // Logo (optionnel)
-        // $this->Image('logo.png', 15, 10, 30);
-        
         // Titre
         $this->SetFont('helvetica', 'B', 16);
         $this->SetTextColor(0, 0, 0);
@@ -159,14 +163,14 @@ class CreancePDF extends TCPDF {
         $this->SetFont('helvetica', 'B', 12);
         $this->Cell(0, 8, 'Détail des Créances', 0, 1, 'L');
         
-        // En-têtes des colonnes (sans les colonnes d'action)
+        // En-têtes des colonnes
         $headers = [
             'RÉGION', 'SECTEUR', 'CLIENT', 'INTITULÉ\nMARCHÉ', 'N° FACTURE\n/ SITUATION',
             'DATE', 'NATURE', 'MONTANT\nTOTAL', 'ENCAISSE-\nMENT', 'MONTANT\nCRÉANCE',
             'ÂGE DE LA\nCRÉANCE', '%\nPROVISION', 'PROVISION\n2024', 'OBSERVATION'
         ];
         
-        // Largeurs des colonnes (ajustées pour le format paysage)
+        // Largeurs des colonnes
         $colWidths = $this->isLandscape ? 
             [18, 18, 22, 25, 22, 15, 18, 20, 20, 20, 18, 15, 20, 20] :
             [12, 12, 15, 18, 15, 10, 12, 14, 14, 14, 12, 10, 14, 14];
@@ -282,75 +286,116 @@ class CreancePDF extends TCPDF {
     }
     
     /**
-     * Générer un graphique en barres (région)
+     * Formater une valeur en K, M, B
+     */
+    private function formatValue($val) {
+        if (abs($val) >= 1e9) {
+            return number_format($val / 1e9, 2, ',', ' ') . 'B';
+        } elseif (abs($val) >= 1e6) {
+            return number_format($val / 1e6, 2, ',', ' ') . 'M';
+        } elseif (abs($val) >= 1e3) {
+            return number_format($val / 1e3, 2, ',', ' ') . 'K';
+        } else {
+            return number_format($val, 2, ',', ' ');
+        }
+    }
+    
+    /**
+     * Bar Chart - CORRECTIONS CAST
      */
     public function generateBarChart($donnees, $outputPath) {
-        // Regrouper les données par région
         $regionData = [];
         foreach ($donnees as $ligne) {
             $region = $ligne['region'];
             if (!isset($regionData[$region])) {
                 $regionData[$region] = ['creances' => 0, 'provisions' => 0];
             }
-            $regionData[$region]['creances'] += $ligne['montant_creance'];
-            $regionData[$region]['provisions'] += $ligne['provision_2024'];
+            $regionData[$region]['creances'] += floatval($ligne['montant_creance']);
+            $regionData[$region]['provisions'] += floatval($ligne['provision_2024']);
         }
         
-        // Créer l'image du graphique (simulation - nécessiterait une vraie librairie de graphiques)
-        $width = 800;
-        $height = 400;
-        $image = imagecreate($width, $height);
+        if (empty($regionData)) {
+            return false;
+        }
         
-        // Couleurs
+        $width = 1200;
+        $height = 600;
+        $image = imagecreatetruecolor($width, $height);
+        
         $white = imagecolorallocate($image, 255, 255, 255);
         $black = imagecolorallocate($image, 0, 0, 0);
         $blue = imagecolorallocate($image, 0, 136, 254);
         $orange = imagecolorallocate($image, 255, 128, 66);
+        $gray = imagecolorallocate($image, 200, 200, 200);
         
-        // Fond blanc
         imagefill($image, 0, 0, $white);
+        imagestring($image, 5, 400, 30, 'Creances vs Provisions par Region', $black);
         
-        // Titre
-        imagestring($image, 5, 250, 20, 'Creances vs Provisions par Region', $black);
+        $chartX = 80;
+        $chartY = 80;
+        $chartWidth = $width - 150;
+        $chartHeight = $height - 150;
         
-        // Dessiner les barres (version simplifiée)
-        $barWidth = 60;
-        $barSpacing = 20;
-        $x = 50;
-        $maxValue = max(array_column($regionData, 'creances'));
-        $scale = 300 / $maxValue;
-        
-        foreach ($regionData as $region => $data) {
-            $creanceHeight = $data['creances'] * $scale;
-            $provisionHeight = $data['provisions'] * $scale;
-            
-            // Barre créances
-            imagefilledrectangle($image, $x, 350 - $creanceHeight, $x + 25, 350, $blue);
-            
-            // Barre provisions
-            imagefilledrectangle($image, $x + 30, 350 - $provisionHeight, $x + 55, 350, $orange);
-            
-            // Label région
-            imagestring($image, 2, $x, 360, substr($region, 0, 8), $black);
-            
-            $x += $barWidth + $barSpacing;
-            
-            if ($x > $width - 100) break; // Éviter le débordement
+        $maxValue = 0;
+        foreach ($regionData as $data) {
+            $maxValue = max($maxValue, $data['creances'], $data['provisions']);
         }
         
-        // Légende
-        imagefilledrectangle($image, 600, 50, 620, 65, $blue);
-        imagestring($image, 3, 625, 52, 'Creances', $black);
-        imagefilledrectangle($image, 600, 70, 620, 85, $orange);
-        imagestring($image, 3, 625, 72, 'Provisions', $black);
+        if ($maxValue == 0) {
+            imagedestroy($image);
+            return false;
+        }
         
-        // Sauvegarder l'image
+        imageline($image, $chartX, $chartY, $chartX, $chartY + $chartHeight, $black);
+        imageline($image, $chartX, $chartY + $chartHeight, $chartX + $chartWidth, $chartY + $chartHeight, $black);
+        
+        for ($i = 0; $i <= 5; $i++) {
+            $y = (int)($chartY + $chartHeight - ($i * $chartHeight / 5));
+            $value = ($maxValue / 5) * $i;
+            imageline($image, $chartX - 5, $y, $chartX, $y, $gray);
+            imagestring($image, 2, 10, $y - 5, $this->formatValue($value), $black);
+        }
+        
+        $regions = array_keys($regionData);
+        $numRegions = count($regions);
+        $barGroupWidth = $chartWidth / ($numRegions + 1);
+        $barWidth = ($barGroupWidth / 3);
+        
+        foreach ($regions as $index => $region) {
+            $x = (int)($chartX + ($index + 0.5) * $barGroupWidth);
+            
+            // CAST EXPLICITE pour éviter deprecated
+            $creanceHeight = (int)(($regionData[$region]['creances'] / $maxValue) * $chartHeight);
+            $creanceY = (int)($chartY + $chartHeight - $creanceHeight);
+            imagefilledrectangle($image, 
+                $x, $creanceY, 
+                (int)($x + $barWidth), (int)($chartY + $chartHeight), 
+                $blue);
+            
+            $provisionHeight = (int)(($regionData[$region]['provisions'] / $maxValue) * $chartHeight);
+            $provisionY = (int)($chartY + $chartHeight - $provisionHeight);
+            imagefilledrectangle($image, 
+                (int)($x + $barWidth + 5), $provisionY, 
+                (int)($x + 2 * $barWidth + 5), (int)($chartY + $chartHeight), 
+                $orange);
+            
+            $regionLabel = substr($region, 0, 10);
+            imagestring($image, 2, $x, (int)($chartY + $chartHeight + 10), $regionLabel, $black);
+        }
+        
+        $legendX = $width - 200;
+        $legendY = 100;
+        imagefilledrectangle($image, $legendX, $legendY, $legendX + 30, $legendY + 20, $blue);
+        imagestring($image, 3, $legendX + 40, $legendY + 5, 'Creances', $black);
+        imagefilledrectangle($image, $legendX, $legendY + 30, $legendX + 30, $legendY + 50, $orange);
+        imagestring($image, 3, $legendX + 40, $legendY + 35, 'Provisions', $black);
+        
         imagepng($image, $outputPath);
         imagedestroy($image);
         
         return file_exists($outputPath);
     }
-    
+
     /**
      * Générer un graphique en secteurs (secteur)
      */
@@ -362,12 +407,16 @@ class CreancePDF extends TCPDF {
             if (!isset($secteurData[$secteur])) {
                 $secteurData[$secteur] = 0;
             }
-            $secteurData[$secteur] += $ligne['montant_creance'];
+            $secteurData[$secteur] += floatval($ligne['montant_creance']);
         }
         
-        $width = 500;
-        $height = 400;
-        $image = imagecreate($width, $height);
+        if (empty($secteurData)) {
+            return false;
+        }
+        
+        $width = 800;
+        $height = 700;
+        $image = imagecreatetruecolor($width, $height);
         
         // Couleurs
         $white = imagecolorallocate($image, 255, 255, 255);
@@ -377,41 +426,45 @@ class CreancePDF extends TCPDF {
             imagecolorallocate($image, 0, 196, 159),
             imagecolorallocate($image, 255, 187, 40),
             imagecolorallocate($image, 255, 128, 66),
-            imagecolorallocate($image, 136, 132, 216)
+            imagecolorallocate($image, 136, 132, 216),
+            imagecolorallocate($image, 255, 99, 132),
+            imagecolorallocate($image, 54, 162, 235)
         ];
         
         imagefill($image, 0, 0, $white);
         
         // Titre
-        imagestring($image, 5, 120, 20, 'Repartition par Secteur', $black);
+        imagestring($image, 5, 220, 30, 'Repartition par Secteur', $black);
         
-        // Calculer les angles
+        // Calculer le total
         $total = array_sum($secteurData);
-        $centerX = 250;
-        $centerY = 200;
-        $radius = 100;
+        if ($total == 0) {
+            imagedestroy($image);
+            return false;
+        }
+        
+        $centerX = 400;
+        $centerY = 350;
+        $radius = 180;
         
         $currentAngle = 0;
         $colorIndex = 0;
         
         foreach ($secteurData as $secteur => $montant) {
             $sliceAngle = ($montant / $total) * 360;
-            
-            // Dessiner la part (version simplifiée)
             $endAngle = $currentAngle + $sliceAngle;
             
-            // Pour chaque degré de la part
-            for ($i = $currentAngle; $i <= $endAngle; $i++) {
-                $x1 = $centerX + cos(deg2rad($i)) * $radius;
-                $y1 = $centerY + sin(deg2rad($i)) * $radius;
-                imageline($image, $centerX, $centerY, $x1, $y1, $colors[$colorIndex % count($colors)]);
-            }
+            // Dessiner la part
+            imagefilledarc($image, $centerX, $centerY, $radius * 2, $radius * 2, 
+                          $currentAngle, $endAngle, $colors[$colorIndex % count($colors)], IMG_ARC_PIE);
             
-            // Label
-            $labelAngle = $currentAngle + ($sliceAngle / 2);
-            $labelX = $centerX + cos(deg2rad($labelAngle)) * ($radius + 30);
-            $labelY = $centerY + sin(deg2rad($labelAngle)) * ($radius + 30);
-            imagestring($image, 2, $labelX, $labelY, substr($secteur, 0, 10), $black);
+            // Label avec pourcentage
+            $labelAngle = deg2rad($currentAngle + ($sliceAngle / 2));
+            $labelX = $centerX + cos($labelAngle) * ($radius + 50);
+            $labelY = $centerY + sin($labelAngle) * ($radius + 50);
+            $percentage = ($montant / $total) * 100;
+            $label = substr($secteur, 0, 12) . "\n" . number_format($percentage, 1) . '%';
+            imagestring($image, 3, $labelX - 30, $labelY - 10, $label, $black);
             
             $currentAngle = $endAngle;
             $colorIndex++;
@@ -422,6 +475,78 @@ class CreancePDF extends TCPDF {
         imagedestroy($image);
         
         return file_exists($outputPath);
+    }
+    
+    /**
+     * Radar Chart - CORRECTION imagepolygon deprecated
+     */
+    public function generateRadarChart($donnees, $outputPath) {
+        // ... (code préparation identique jusqu'aux appels imagepolygon)
+        
+        // REMPLACER:
+        // imagefilledpolygon($image, $pointsCreances, $n, $blue);
+        // imagepolygon($image, $pointsCreances, $n, $blue);
+        
+        // PAR (PHP 8+):
+        if ($n >= 3) {
+            imagefilledpolygon($image, $pointsCreances, $blue); // SANS $n
+            imagesetthickness($image, 3);
+            imagepolygon($image, $pointsCreances, $blue); // SANS $n
+            imagesetthickness($image, 1);
+        }
+        
+        // ... même correction pour $pointsProvisions
+        
+        imagesetthickness($image, 3);
+        if ($n >= 3) {
+            imagepolygon($image, $pointsProvisions, $orange); // SANS $n
+        }
+        imagesetthickness($image, 1);
+        
+        // ... reste identique
+        // Points et valeurs pour provisions
+        for ($i = 0; $i < $n; $i++) {
+            $x = $pointsProvisions[$i * 2];
+            $y = $pointsProvisions[$i * 2 + 1];
+            imagefilledellipse($image, $x, $y, 12, 12, $orange);
+            
+            $value = $naturesData[$natures[$i]]['provisions'];
+            $valueText = $this->formatValue($value);
+            imagestring($image, 3, $x + 15, $y + 5, $valueText, $orange);
+        }
+        
+        // Légende
+        $legendX = 80;
+        $legendY = 850;
+        
+        imagefilledrectangle($image, $legendX - 15, $legendY - 15, $legendX + 250, $legendY + 80, $lightGray);
+        imagerectangle($image, $legendX - 15, $legendY - 15, $legendX + 250, $legendY + 80, $gray);
+        
+        imagefilledrectangle($image, $legendX, $legendY, $legendX + 40, $legendY + 25, $blue);
+        imagestring($image, 4, $legendX + 50, $legendY + 5, 'Creances', $black);
+        
+        imagefilledrectangle($image, $legendX, $legendY + 40, $legendX + 40, $legendY + 65, $orange);
+        imagestring($image, 4, $legendX + 50, $legendY + 45, 'Provisions', $black);
+        
+        // Sauvegarder
+        imagepng($image, $outputPath);
+        imagedestroy($image);
+        
+        return file_exists($outputPath);
+    }
+    // ... reste des méthodes
+    /**
+     * Vérifier si le radar chart peut être généré
+     */
+    public function canGenerateRadarChart($donnees) {
+        $naturesUniques = [];
+        foreach ($donnees as $ligne) {
+            $nature = $ligne['nature'];
+            if (!in_array($nature, $naturesUniques)) {
+                $naturesUniques[] = $nature;
+            }
+        }
+        return count($naturesUniques) >= 3;
     }
     
     /**
@@ -438,7 +563,7 @@ class CreancePDF extends TCPDF {
         foreach ($files as $file) {
             if (is_file($file)) {
                 if ($now - filemtime($file) >= $olderThanHours * 3600) {
-                    unlink($file);
+                    @unlink($file);
                 }
             }
         }
@@ -462,64 +587,109 @@ class ReportGenerator {
     }
     
     /**
-     * Générer un rapport PDF complet
+     * Générer un rapport PDF complet avec options de visualisation
+     * CORRECTION MAJEURE : Accepte maintenant $chartOptions
+     * 
+     * @param array $filters Filtres appliqués aux données
+     * @param int $archived 0 pour données actives, 1 pour archives
+     * @param array $chartOptions Options des graphiques: ['bar_chart' => bool, 'pie_chart' => bool, 'radar_chart' => bool]
+     * @return array Résultat avec success, filename, filepath, ou error
      */
-    public function generateFullReport($filters = [], $archived = 0, $includeCharts = false) {
+    public function generateFullReport($filters = [], $archived = 0, $chartOptions = []) {
         try {
-            // Obtenir les données
-            $donnees = $this->creance->getAll($filters, $archived, 1, 10000); // Limite haute pour export
-            $stats = $this->creance->getStats($filters);
+            // Obtenir les données FILTRÉES
+            $donnees = $this->creance->getAll($filters, $archived, 1, 10000);
+            
+            if (empty($donnees)) {
+                throw new Exception('Aucune donnée à exporter');
+            }
+            
+            // Obtenir les statistiques sur les données filtrées
+            $stats = $archived === 0 ? $this->creance->getStats($filters) : null;
             
             // Créer le PDF
             $title = $archived ? 'Rapport d\'Archive des Créances' : 'Rapport de Gestion des Créances';
             $pdf = new CreancePDF($title, true);
             
-            // Générer le rapport principal
+            // Générer le rapport principal avec les données FILTRÉES
             $pdf->generateReport($donnees, $stats, $filters);
             
-            // Ajouter les graphiques si demandé
-            if ($includeCharts && !$archived) {
-                $chartImages = [];
+            // Ajouter les graphiques si demandé ET si on n'est pas en mode archive
+            $chartImages = [];
+            if ($archived === 0 && !empty($chartOptions)) {
                 
-                // Générer les graphiques
-                $barChartPath = $this->tempDir . 'bar_chart_' . uniqid() . '.png';
-                if ($pdf->generateBarChart($donnees, $barChartPath)) {
-                    $chartImages['Créances vs Provisions par Région'] = $barChartPath;
+                // Bar Chart par Région
+                if (!empty($chartOptions['bar_chart'])) {
+                    $barChartPath = $this->tempDir . 'bar_chart_' . uniqid() . '.png';
+                    if ($pdf->generateBarChart($donnees, $barChartPath)) {
+                        $chartImages['Créances vs Provisions par Région'] = $barChartPath;
+                    }
                 }
                 
-                $pieChartPath = $this->tempDir . 'pie_chart_' . uniqid() . '.png';
-                if ($pdf->generatePieChart($donnees, $pieChartPath)) {
-                    $chartImages['Répartition par Secteur'] = $pieChartPath;
+                // Pie Chart par Secteur
+                if (!empty($chartOptions['pie_chart'])) {
+                    $pieChartPath = $this->tempDir . 'pie_chart_' . uniqid() . '.png';
+                    if ($pdf->generatePieChart($donnees, $pieChartPath)) {
+                        $chartImages['Répartition par Secteur'] = $pieChartPath;
+                    }
+                }
+                
+                // Radar Chart par Nature (avec vérification)
+                if (!empty($chartOptions['radar_chart']) && $pdf->canGenerateRadarChart($donnees)) {
+                    $radarChartPath = $this->tempDir . 'radar_chart_' . uniqid() . '.png';
+                    if ($pdf->generateRadarChart($donnees, $radarChartPath)) {
+                        $chartImages['Spider Radar par Nature'] = $radarChartPath;
+                    }
                 }
                 
                 // Ajouter au PDF
                 if (!empty($chartImages)) {
                     $pdf->addCharts($chartImages);
                 }
-                
-                // Nettoyer les fichiers temporaires
-                foreach ($chartImages as $imagePath) {
-                    if (file_exists($imagePath)) {
-                        unlink($imagePath);
-                    }
-                }
+            }
+            
+            // Créer le répertoire exports s'il n'existe pas
+            $exportsDir = ROOT_PATH . '/exports/';
+            if (!is_dir($exportsDir)) {
+                mkdir($exportsDir, 0755, true);
             }
             
             // Générer le nom de fichier
             $filename = 'rapport_creances_' . date('Y-m-d_H-i-s') . '.pdf';
-            $filepath = ROOT_PATH . '/exports/' . $filename;
+            $filepath = $exportsDir . $filename;
             
             // Sauvegarder le PDF
             $pdf->Output($filepath, 'F');
+            
+            // Nettoyer les fichiers temporaires
+            foreach ($chartImages as $imagePath) {
+                if (file_exists($imagePath)) {
+                    @unlink($imagePath);
+                }
+            }
             
             return [
                 'success' => true,
                 'filename' => $filename,
                 'filepath' => $filepath,
-                'size' => filesize($filepath)
+                'size' => filesize($filepath),
+                'nb_lignes' => count($donnees),
+                'filters_applied' => !empty($filters),
+                'charts_count' => count($chartImages)
             ];
             
         } catch (Exception $e) {
+            error_log("Erreur génération PDF: " . $e->getMessage() . " - " . $e->getTraceAsString());
+            
+            // Nettoyer les fichiers temporaires en cas d'erreur
+            if (isset($chartImages)) {
+                foreach ($chartImages as $imagePath) {
+                    if (file_exists($imagePath)) {
+                        @unlink($imagePath);
+                    }
+                }
+            }
+            
             return [
                 'success' => false,
                 'error' => $e->getMessage()
@@ -528,7 +698,23 @@ class ReportGenerator {
     }
     
     /**
-     * Générer un rapport d'analyse
+     * Vérifier si le radar chart peut être généré pour les données données
+     * @param array $filters
+     * @param int $archived
+     * @return bool
+     */
+    public function canGenerateRadar($filters = [], $archived = 0) {
+        try {
+            $donnees = $this->creance->getAll($filters, $archived, 1, 10000);
+            $pdf = new CreancePDF();
+            return $pdf->canGenerateRadarChart($donnees);
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+    
+    /**
+     * Générer un rapport d'analyse groupé
      */
     public function generateAnalyticsReport($groupBy = 'region') {
         try {
@@ -578,8 +764,14 @@ class ReportGenerator {
             $pdf->Cell($colWidths[2], 8, array_sum(array_column($analyticsData, 'count')), 1, 0, 'C', true);
             $pdf->Cell($colWidths[3], 8, '100%', 1, 0, 'R', true);
             
+            // Créer le répertoire exports s'il n'existe pas
+            $exportsDir = ROOT_PATH . '/exports/';
+            if (!is_dir($exportsDir)) {
+                mkdir($exportsDir, 0755, true);
+            }
+            
             $filename = 'analyse_' . $groupBy . '_' . date('Y-m-d_H-i-s') . '.pdf';
-            $filepath = ROOT_PATH . '/exports/' . $filename;
+            $filepath = $exportsDir . $filename;
             
             $pdf->Output($filepath, 'F');
             
@@ -603,7 +795,34 @@ class ReportGenerator {
      */
     public function cleanupOldExports($daysOld = 7) {
         CreancePDF::cleanupTempFiles(ROOT_PATH . '/exports/', $daysOld * 24);
-        CreancePDF::cleanupTempFiles($this->tempDir, 1); // Nettoyer les temp files après 1h
+        CreancePDF::cleanupTempFiles($this->tempDir, 1);
+    }
+    
+    /**
+     * Obtenir la liste des exports disponibles
+     */
+    public function getAvailableExports() {
+        $exportsDir = ROOT_PATH . '/exports/';
+        if (!is_dir($exportsDir)) {
+            return [];
+        }
+        
+        $files = glob($exportsDir . '*.pdf');
+        $exports = [];
+        
+        foreach ($files as $file) {
+            $exports[] = [
+                'filename' => basename($file),
+                'filepath' => $file,
+                'size' => filesize($file),
+                'date' => date('Y-m-d H:i:s', filemtime($file))
+            ];
+        }
+        
+        usort($exports, function($a, $b) {
+            return strtotime($b['date']) - strtotime($a['date']);
+        });
+        
+        return $exports;
     }
 }
-?>

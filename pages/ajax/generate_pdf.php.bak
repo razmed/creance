@@ -183,10 +183,7 @@ try {
             }
         }
     }
-    
-    // Log de succès
-    error_log("GENERATE_PDF - Succès: PDF généré - {$filename} - " . count($donnees) . " créances - Mode: {$downloadMode}");
-    
+
 } catch (Exception $e) {
     error_log("GENERATE_PDF - Erreur: " . $e->getMessage() . " - Trace: " . $e->getTraceAsString());
     
@@ -230,3 +227,17 @@ try {
         echo "Erreur lors de la génération du PDF: " . $e->getMessage();
     }
 }
+    
+/**
+ * Formater les octets en format lisible
+ */
+function formatBytes($bytes, $precision = 2) {
+    $units = array('B', 'KB', 'MB', 'GB', 'TB');
+    
+    for ($i = 0; $bytes > 1024 && $i < count($units) - 1; $i++) {
+        $bytes /= 1024;
+    }
+    
+    return round($bytes, $precision) . ' ' . $units[$i];
+}
+?>

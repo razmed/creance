@@ -4,6 +4,11 @@
  * Gestion des Créances - Version Web
  */
 
+// CRITIQUE: Avant tout
+error_reporting(E_ERROR | E_PARSE);
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+
 class Database {
     private $host;
     private $dbname;

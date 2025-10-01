@@ -211,7 +211,7 @@ try {
                                             <i class="fas fa-edit"></i>
                                         </button>
                                         <button class="btn-action btn-archive" onclick="archiveCreance(<?php echo $ligne['id']; ?>)" title="Archiver">
-                                            <i class="fas fa-archive"></i>
+                                            <i class="fas fa-trash"></i>
                                         </button>
                                     </div>
                                 </td>
@@ -967,8 +967,7 @@ function closeStatsModal() {
 }
 
 function exportPDF() {
-    const includeCharts = confirm('Voulez-vous inclure des graphiques dans le PDF ?');
-    window.location.href = `pages/ajax/generate_pdf.php?charts=${includeCharts ? '1' : '0'}`;
+    showPDFVisualizationDialog();
 }
 
 function exportExcel() {
