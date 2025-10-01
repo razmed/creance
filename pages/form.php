@@ -340,240 +340,243 @@ try {
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-    <script>
-    $(document).ready(function() {
-        initFormEvents();
-        // initialisation des valeurs calculées après avoir attaché les events
-        updateCalculatedValues();
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+<script>
+$(document).ready(function() {
+    initFormEvents();
+    updateCalculatedValues();
 
-        // Si on est en édition, initialiser l'état des contrôles (client nouveau, region nouveau, encaissement)
-        <?php if ($editData): ?>
-            // client : si le client enregistré n'est pas dans la liste, activer "Nouveau client"
-            <?php $clientEdit = isset($editData['client']) ? addslashes(trim($editData['client'])) : ''; ?>
-            (function() {
-                var editClient = "<?php echo $clientEdit; ?>";
-                if (editClient !== "") {
-                    var found = false;
-                    $('#client option').each(function() {
-                        if ($.trim($(this).val()) === editClient) found = true;
-                    });
-                    if (!found) {
-                        $('#clientNouveau').prop('checked', true).trigger('change');
-                        $('#clientNew').val(editClient);
-                    } else {
-                        // s'assurer que le select est correctement sélectionné si trouvé
-                        $('#client').val(editClient);
-                    }
+    <?php if ($editData): ?>
+        <?php $clientEdit = isset($editData['client']) ? addslashes(trim($editData['client'])) : ''; ?>
+        (function() {
+            var editClient = "<?php echo $clientEdit; ?>";
+            if (editClient !== "") {
+                var found = false;
+                $('#client option').each(function() {
+                    if ($.trim($(this).val()) === editClient) found = true;
+                });
+                if (!found) {
+                    $('#clientNouveau').prop('checked', true).trigger('change');
+                    $('#clientNew').val(editClient);
+                } else {
+                    $('#client').val(editClient);
                 }
-            })();
+            }
+        })();
 
-            // encaissement: si encaissement == 0 alors checkbox cochée (comportement souhaité: cochée => encaissement = 0)
-            <?php $enc = isset($editData['encaissement']) ? (float)$editData['encaissement'] : 0; ?>
-            (function() {
-                var encVal = <?php echo json_encode($enc); ?>;
-                $('#encaissementZero').prop('checked', encVal === 0);
-                setEncaissementState(); // applique l'état en UI
-                updateCalculatedValues();
-                console.log('INIT EDIT - encaissement:', encVal, 'checkbox:', $('#encaissementZero').is(':checked'));
-            })();
-        <?php endif; ?>
-    });
+        <?php $enc = isset($editData['encaissement']) ? (float)$editData['encaissement'] : 0; ?>
+        (function() {
+            var encVal = <?php echo json_encode($enc); ?>;
+            $('#encaissementZero').prop('checked', encVal === 0);
+            setEncaissementState();
+            updateCalculatedValues();
+        })();
+    <?php endif; ?>
+});
 
-    // Centralise la gestion du toggle encaissement
-    function setEncaissementState() {
-        // cochée => encaissement = 0 (désactivé)
-        if ($('#encaissementZero').is(':checked')) {
-            $('#encaissement').prop('disabled', true).val('0.00');
-            $('#encaissement_total').prop('disabled', true).val('0.00');
-        } else {
-            // décochée => encaissement = montant_total (modifiable)
-            $('#encaissement').prop('disabled', false);
+function setEncaissementState() {
+    if ($('#encaissementZero').is(':checked')) {
+        $('#encaissement').prop('disabled', true).val('0.00');
+    } else {
+        $('#encaissement').prop('disabled', false);
+        var currentEnc = parseFloat($('#encaissement').val());
+        if (isNaN(currentEnc) || currentEnc === 0) {
             var montantTotal = parseFloat($('#montant_total').val()) || 0;
-            // si on est en édition et que l'utilisateur avait déjà une valeur personnalisée (non nulle),
-            // on ne l'écrase pas automatiquement ; on met la valeur du montant total seulement si le champ est vide ou égal à 0
-            var currentEnc = parseFloat($('#encaissement').val());
-            if (isNaN(currentEnc) || currentEnc === 0) {
-                $('#encaissement').val(montantTotal.toFixed(2));
-            }
+            $('#encaissement').val(montantTotal.toFixed(2));
         }
-        updateCalculatedValues();
     }
+    updateCalculatedValues();
+}
 
-    function initFormEvents() {
-        // Région nouveau
-        $('#regionNouveau').off('change').on('change', function() {
-            if (this.checked) {
-                $('#region').prop('disabled', true).removeAttr('required').removeAttr('name');
-                $('#regionNew').show().prop('required', true).attr('name', 'region');
-            } else {
-                $('#region').prop('disabled', false).prop('required', true).attr('name', 'region');
-                $('#regionNew').hide().removeAttr('required').removeAttr('name').val('');
-            }
-        });
-
-        // Client nouveau
-        $('#clientNouveau').off('change').on('change', function() {
-            if (this.checked) {
-                $('#client').prop('disabled', true).removeAttr('required').removeAttr('name');
-                $('#clientNew').show().prop('required', true).attr('name', 'client');
-            } else {
-                $('#client').prop('disabled', false).prop('required', true).attr('name', 'client');
-                $('#clientNew').hide().removeAttr('required').removeAttr('name').val('');
-            }
-        });
-
-        // Observation include
-        $('#observationInclude').off('change').on('change', function() {
-            $('#observation').prop('disabled', !this.checked);
-            if (!this.checked) {
-                $('#observation').val('');
-            }
-        });
-
-        // Encaissement zero toggle (comportement : cochée => encaissement = 0)
-        $('#encaissementZero').off('change').on('change', function() {
-            console.log('ENC_TOGGLE changed -> checked=', $(this).is(':checked'));
-            setEncaissementState();
-        });
-
-        // Auto-formatage date
-        $('#date_str').off('input').on('input', function() {
-            var value = this.value.replace(/\D/g, '');
-            if (value.length >= 2) {
-                value = value.slice(0, 2) + '/' + value.slice(2);
-            }
-            if (value.length >= 5) {
-                value = value.slice(0, 5) + '/' + value.slice(5, 9);
-            }
-            this.value = value;
-            updateCalculatedValues();
-        });
-
-        // Mise à jour calculs : montant_total change
-        $('#montant_total').off('input').on('input', function() {
-            console.log('montant_total input:', $(this).val());
-            // appliquer l'état d'encaissement selon checkbox
-            setEncaissementState();
-            updateCalculatedValues();
-        });
-
-        // Mise à jour calculs : encaissement change manuellement
-        $('#encaissement').off('input').on('input', function() {
-            updateCalculatedValues();
-        });
-
-        // Validation formulaire
-        $('#creanceForm').off('submit').on('submit', function(e) {
-            if (!validateForm()) {
-                e.preventDefault();
-            }
-        });
-    }
-
-    /* ---------- fonctions utilitaires (laisses les tiennes existantes) ---------- */
-
-    function updateCalculatedValues() {
-        var montantTotal = parseFloat($('#montant_total').val()) || 0;
-        var encaissement = parseFloat($('#encaissement').val()) || 0;
-        var montantCreance = montantTotal - encaissement;
-
-        if (encaissement > montantTotal) {
-            $('#encaissement').addClass('error');
-            try { $('#encaissement')[0].setCustomValidity("L'encaissement ne peut pas être supérieur au montant total"); } catch(e){}
+function initFormEvents() {
+    $('#regionNouveau').off('change').on('change', function() {
+        if (this.checked) {
+            $('#region').prop('disabled', true).removeAttr('required').removeAttr('name');
+            $('#regionNew').show().prop('required', true).attr('name', 'region');
         } else {
-            $('#encaissement').removeClass('error');
-            try { $('#encaissement')[0].setCustomValidity(''); } catch(e){}
-        }
-
-        $('#montantCreance').text(formatMoney(montantCreance) + ' DZD');
-
-        var dateStr = $('#date_str').val();
-        var age = calculateAge(dateStr);
-        $('#ageCreance').text(age + ' ans');
-
-        var ageMonths = calculateAgeMonths(dateStr);
-        var provisionPct = calculateProvisionPercentage(ageMonths);
-        var provision = (montantCreance * provisionPct) / 100;
-        $('#provisionCreance').text(formatMoney(provision) + ' DZD (' + provisionPct + '%)');
-
-        // debug
-        console.log('UPDATE_CALC -> montantTotal:', montantTotal, 'encaissement:', encaissement, 'montantCreance:', montantCreance);
-    }
-
-    function formatMoney(amount) {
-        return new Intl.NumberFormat('fr-DZ', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        }).format(amount || 0);
-    }
-
-    function calculateAge(dateStr) {
-        if (!dateStr || !validateDate(dateStr)) return 0;
-        var parts = dateStr.split('/');
-        var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
-        var today = new Date(); var age = today.getFullYear() - creanceDate.getFullYear();
-        if (today < new Date(today.getFullYear(), creanceDate.getMonth(), creanceDate.getDate())) { age--; }
-        return Math.max(age, 0); 
-    }
-    function calculateAgeMonths(dateStr) {
-        if (!dateStr || !validateDate(dateStr)) return 0;
-        var parts = dateStr.split('/');
-        var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
-        var today = new Date(); var months = (today.getFullYear() - creanceDate.getFullYear()) * 12;
-        months += today.getMonth() - creanceDate.getMonth(); return Math.max(months, 0); 
-    }
-    function calculateProvisionPercentage(ageMonths) {
-        if (ageMonths >= 60) return 100; // 5 ans ou plus 
-        if (ageMonths >= 36) return 50; // 3-5 ans *
-        if (ageMonths >= 24) return 20; // 2-3 ans 
-        return 0; // Moins de 2 ans 
-    } 
-    function validateDate(dateStr) {
-        var regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-        var match = dateStr.match(regex);
-        if (!match) return false;
-        var day = parseInt(match[1], 10);
-        var month = parseInt(match[2], 10);
-        var year = parseInt(match[3], 10);
-        if (month < 1 || month > 12) return false;
-        if (day < 1 || day > 31) return false;
-        var date = new Date(year, month - 1, day);
-        return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
-    }
-    function validateForm() { 
-        var isValid = true;
-        // Validation date 
-        var dateStr = $('#date_str').val();
-        if (!validateDate(dateStr)) { alert('Format de date invalide. Utilisez DD/MM/YYYY');
-            $('#date_str').focus();
-            return false;
-        } 
-        // Validation montants
-        var montantTotal = parseFloat($('#montant_total').val()) || 0;
-        var encaissement = parseFloat($('#encaissement').val()) || 0; if (montantTotal <= 0) { alert('Le montant total doit être supérieur à zéro'); $('#montant_total').focus(); return false; } if (encaissement > montantTotal) { alert('L\'encaissement ne peut pas être supérieur au montant total'); $('#encaissement').focus(); return false; } return isValid; } function formatMoney(amount) { return new Intl.NumberFormat('fr-DZ', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount); }
-
-    // conserve tes autres fonctions (calculateAge, calculateAgeMonths, calculateProvisionPercentage, validateDate, validateForm)
-    
-    // Fonction pour fermer le modal depuis l'iframe
-    function closeModal() {
-        try {
-            // Envoyer un message au parent pour fermer le modal
-            window.parent.postMessage({type: 'closeModal'}, '*');
-        } catch(e) {
-            console.error('Erreur fermeture modal:', e);
-            // Fallback : si on ne peut pas communiquer avec le parent, recharger la page
-            window.location.href = '../index.php';
-        }
-    }
-
-    // Écouter la touche Escape pour fermer
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && window.parent !== window) {
-            closeModal();
+            $('#region').prop('disabled', false).prop('required', true).attr('name', 'region');
+            $('#regionNew').hide().removeAttr('required').removeAttr('name').val('');
         }
     });
-    </script>
+
+    $('#clientNouveau').off('change').on('change', function() {
+        if (this.checked) {
+            $('#client').prop('disabled', true).removeAttr('required').removeAttr('name');
+            $('#clientNew').show().prop('required', true).attr('name', 'client');
+        } else {
+            $('#client').prop('disabled', false).prop('required', true).attr('name', 'client');
+            $('#clientNew').hide().removeAttr('required').removeAttr('name').val('');
+        }
+    });
+
+    $('#observationInclude').off('change').on('change', function() {
+        $('#observation').prop('disabled', !this.checked);
+        if (!this.checked) {
+            $('#observation').val('');
+        }
+    });
+
+    $('#encaissementZero').off('change').on('change', function() {
+        setEncaissementState();
+    });
+
+    $('#date_str').off('input').on('input', function() {
+        var value = this.value.replace(/\D/g, '');
+        if (value.length >= 2) {
+            value = value.slice(0, 2) + '/' + value.slice(2);
+        }
+        if (value.length >= 5) {
+            value = value.slice(0, 5) + '/' + value.slice(5, 9);
+        }
+        this.value = value;
+        updateCalculatedValues();
+    });
+
+    $('#montant_total').off('input').on('input', function() {
+        setEncaissementState();
+    });
+
+    $('#encaissement').off('input').on('input', function() {
+        updateCalculatedValues();
+    });
+
+    $('#creanceForm').off('submit').on('submit', function(e) {
+        if (!validateForm()) {
+            e.preventDefault();
+        }
+    });
+}
+
+function updateCalculatedValues() {
+    var montantTotal = parseFloat($('#montant_total').val()) || 0;
+    var encaissement = parseFloat($('#encaissement').val()) || 0;
+    var isZeroChecked = $('#encaissementZero').is(':checked');
+    
+    var montantCreance;
+    if (isZeroChecked) {
+        montantCreance = 0;
+    } else {
+        montantCreance = montantTotal - encaissement;
+    }
+    
+    if (!isZeroChecked && encaissement > montantTotal) {
+        $('#encaissement').addClass('error');
+        try { 
+            $('#encaissement')[0].setCustomValidity("L'encaissement ne peut pas être supérieur au montant total"); 
+        } catch(e){}
+    } else {
+        $('#encaissement').removeClass('error');
+        try { 
+            $('#encaissement')[0].setCustomValidity(''); 
+        } catch(e){}
+    }
+
+    $('#montantCreance').text(formatMoney(montantCreance) + ' DZD');
+
+    var dateStr = $('#date_str').val();
+    var age = calculateAge(dateStr);
+    $('#ageCreance').text(age + ' ans');
+
+    var ageMonths = calculateAgeMonths(dateStr);
+    var provisionPct = calculateProvisionPercentage(ageMonths);
+    var provision = (montantCreance * provisionPct) / 100;
+    $('#provisionCreance').text(formatMoney(provision) + ' DZD (' + provisionPct + '%)');
+}
+
+function formatMoney(amount) {
+    return new Intl.NumberFormat('fr-DZ', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    }).format(amount || 0);
+}
+
+function calculateAge(dateStr) {
+    if (!dateStr || !validateDate(dateStr)) return 0;
+    var parts = dateStr.split('/');
+    var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
+    var today = new Date();
+    var age = today.getFullYear() - creanceDate.getFullYear();
+    if (today < new Date(today.getFullYear(), creanceDate.getMonth(), creanceDate.getDate())) {
+        age--;
+    }
+    return Math.max(age, 0);
+}
+
+function calculateAgeMonths(dateStr) {
+    if (!dateStr || !validateDate(dateStr)) return 0;
+    var parts = dateStr.split('/');
+    var creanceDate = new Date(parts[2], parts[1] - 1, parts[0]);
+    var today = new Date();
+    var months = (today.getFullYear() - creanceDate.getFullYear()) * 12;
+    months += today.getMonth() - creanceDate.getMonth();
+    return Math.max(months, 0);
+}
+
+function calculateProvisionPercentage(ageMonths) {
+    if (ageMonths >= 60) return 100;
+    if (ageMonths >= 36) return 50;
+    if (ageMonths >= 24) return 20;
+    return 0;
+}
+
+function validateDate(dateStr) {
+    var regex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+    var match = dateStr.match(regex);
+    if (!match) return false;
+    var day = parseInt(match[1], 10);
+    var month = parseInt(match[2], 10);
+    var year = parseInt(match[3], 10);
+    if (month < 1 || month > 12) return false;
+    if (day < 1 || day > 31) return false;
+    var date = new Date(year, month - 1, day);
+    return date.getFullYear() === year && 
+           date.getMonth() === month - 1 && 
+           date.getDate() === day;
+}
+
+function validateForm() {
+    var dateStr = $('#date_str').val();
+    if (!validateDate(dateStr)) {
+        alert('Format de date invalide. Utilisez DD/MM/YYYY');
+        $('#date_str').focus();
+        return false;
+    }
+
+    var montantTotal = parseFloat($('#montant_total').val()) || 0;
+    if (montantTotal <= 0) {
+        alert('Le montant total doit être supérieur à zéro');
+        $('#montant_total').focus();
+        return false;
+    }
+    
+    var isZeroChecked = $('#encaissementZero').is(':checked');
+    if (!isZeroChecked) {
+        var encaissement = parseFloat($('#encaissement').val()) || 0;
+        if (encaissement > montantTotal) {
+            alert('L\'encaissement ne peut pas être supérieur au montant total');
+            $('#encaissement').focus();
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+function closeModal() {
+    try {
+        window.parent.postMessage({type: 'closeModal'}, '*');
+    } catch(e) {
+        console.error('Erreur fermeture modal:', e);
+        window.location.href = '../index.php';
+    }
+}
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && window.parent !== window) {
+        closeModal();
+    }
+});
+</script>
 
 
     <style>
