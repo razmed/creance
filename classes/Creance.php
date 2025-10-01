@@ -549,32 +549,32 @@ class Creance {
         return $data;
     }
     
-    private function processData($data) {
-        // Nettoyer et valider les données
-        $processed = [];
-        
-        // Champs texte
-        $textFields = ['region', 'secteur', 'client', 'intitule_marche', 'num_facture_situation', 'date_str', 'nature'];
-        foreach ($textFields as $field) {
-            $processed[$field] = trim($data[$field] ?? '');
-        }
-        
-        // Observation (optionnelle)
-        $processed['observation'] = !empty($data['observation']) ? trim($data['observation']) : null;
-        
-        // Montants
-        $processed['montant_total'] = (float)($data['montant_total'] ?? 0);
-        $processed['encaissement'] = (float)($data['encaissement'] ?? 0);
-        $processed['montant_creance'] = $processed['montant_total'] - $processed['encaissement'];
-        
-        // Calculer les valeurs dérivées
-        $processed['age_annees'] = $this->calculateAgeYears($processed['date_str']);
-        $ageMonths = $this->calculateAgeMonths($processed['date_str']);
-        $processed['pct_provision'] = $this->calculateProvisionPercentage($ageMonths);
-        $processed['provision_2024'] = ($processed['montant_creance'] * $processed['pct_provision']) / 100;
-        
-        return $processed;
+private function processData($data) {
+    $processed = [];
+    
+    $textFields = ['region', 'secteur', 'client', 'intitule_marche', 'num_facture_situation', 'date_str', 'nature'];
+    foreach ($textFields as $field) {
+        $processed[$field] = trim($data[$field] ?? '');
     }
+    
+    $processed['observation'] = !empty($data['observation']) ? trim($data['observation']) : null;
+    
+    $processed['montant_total'] = (float)($data['montant_total'] ?? 0);
+    $processed['encaissement'] = (float)($data['encaissement'] ?? 0);
+    
+    if ($processed['encaissement'] == 0) {
+        $processed['montant_creance'] = 0.0;
+    } else {
+        $processed['montant_creance'] = $processed['montant_total'] - $processed['encaissement'];
+    }
+    
+    $processed['age_annees'] = $this->calculateAgeYears($processed['date_str']);
+    $ageMonths = $this->calculateAgeMonths($processed['date_str']);
+    $processed['pct_provision'] = $this->calculateProvisionPercentage($ageMonths);
+    $processed['provision_2024'] = ($processed['montant_creance'] * $processed['pct_provision']) / 100;
+    
+    return $processed;
+}
     
     private function calculateAgeYears($dateStr) {
         try {
