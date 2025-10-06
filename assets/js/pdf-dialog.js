@@ -4,12 +4,12 @@
  */
 
 /**
- * Afficher le dialogue de sélection des visualisations
+ * Dialogue de sélection des visualisations PDF
+ * Version avec support "Aucun graphique"
  */
+
 function showPDFVisualizationDialog() {
-    // Vérifier d'abord la disponibilité du radar
     checkRadarAvailability().then(canShowRadar => {
-        // Créer le dialogue
         const dialog = document.createElement('div');
         dialog.id = 'pdfVisualizationDialog';
         dialog.className = 'modal';
@@ -26,7 +26,7 @@ function showPDFVisualizationDialog() {
                     
                     <div class="visualization-options">
                         <label class="viz-option">
-                            <input type="checkbox" id="opt_bar_chart" name="bar_chart" checked>
+                            <input type="checkbox" id="opt_bar_chart" name="bar_chart">
                             <div class="viz-info">
                                 <div class="viz-icon">
                                     <i class="fas fa-chart-bar" style="color: #0088FE;"></i>
@@ -39,7 +39,7 @@ function showPDFVisualizationDialog() {
                         </label>
                         
                         <label class="viz-option">
-                            <input type="checkbox" id="opt_pie_chart" name="pie_chart" checked>
+                            <input type="checkbox" id="opt_pie_chart" name="pie_chart">
                             <div class="viz-info">
                                 <div class="viz-icon">
                                     <i class="fas fa-chart-pie" style="color: #00C49F;"></i>
@@ -53,7 +53,7 @@ function showPDFVisualizationDialog() {
                         
                         <label class="viz-option ${canShowRadar ? '' : 'disabled'}">
                             <input type="checkbox" id="opt_radar_chart" name="radar_chart" 
-                                   ${canShowRadar ? 'checked' : 'disabled'}>
+                                   ${canShowRadar ? '' : 'disabled'}>
                             <div class="viz-info">
                                 <div class="viz-icon">
                                     <i class="fas fa-project-diagram" style="color: #FF8042;"></i>
@@ -72,7 +72,7 @@ function showPDFVisualizationDialog() {
                     
                     <div class="dialog-note">
                         <i class="fas fa-info-circle"></i>
-                        <span>Les données exportées incluront les filtres actuellement appliqués.</span>
+                        <span>Si aucun graphique n'est sélectionné, seul le tableau des données sera exporté.</span>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -113,11 +113,6 @@ function generatePDFWithOptions() {
     const pieChart = document.getElementById('opt_pie_chart')?.checked ? '1' : '0';
     const radarChart = document.getElementById('opt_radar_chart')?.checked ? '1' : '0';
     
-    // Vérifier qu'au moins une option est cochée
-    if (barChart === '0' && pieChart === '0' && radarChart === '0') {
-        alert('Veuillez sélectionner au moins une visualisation');
-        return;
-    }
     
     // Afficher l'indicateur de chargement
     showLoadingIndicator('Génération du PDF en cours...');
@@ -158,6 +153,11 @@ function generatePDFWithOptions() {
             setTimeout(() => {
                 document.body.removeChild(link);
             }, 100);
+
+            // Message adapté selon le nombre de graphiques
+            const chartMsg = data.charts_included > 0 
+                ? ` avec ${data.charts_included} graphique(s)` 
+                : ' (tableau uniquement)';
             
             showNotification('PDF généré avec succès ! (' + data.size + ')', 'success');
         } else {

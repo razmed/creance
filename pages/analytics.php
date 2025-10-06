@@ -1,9 +1,7 @@
 <?php
 /**
  * Page Analytics - Visualisations des données avec Diagramme de Sankey
- * Version optimisée avec nœuds proportionnels utilisant toute la hauteur
- * CORRECTION EXPORT PNG - Suppression des traits noirs
- * MODIFICATION : Exclusion des créances à 0 du diagramme Sankey
+ * Version avec exclusion des créances à 0 du Sankey mais affichage dans le tableau
  */
 
 $creance = new Creance();
@@ -15,18 +13,20 @@ if (!in_array($groupBy, $validGroupBy)) {
 }
 
 try {
-    $analyticsData = $creance->getAnalyticsData($groupBy);
+    // Récupérer TOUTES les données (avec les 0)
+    $analyticsDataComplete = $creance->getAnalyticsData($groupBy);
     
-    // NOUVELLE LIGNE : Filtrer les données pour exclure les montants à 0
-    $analyticsData = array_filter($analyticsData, function($item) {
+    // Créer une version filtrée SANS les montants à 0 (pour le Sankey uniquement)
+    $analyticsDataFiltered = array_filter($analyticsDataComplete, function($item) {
         return isset($item['montant']) && floatval($item['montant']) > 0;
     });
     
-    // Réindexer le tableau après filtrage
-    $analyticsData = array_values($analyticsData);
+    // Réindexer le tableau filtré
+    $analyticsDataFiltered = array_values($analyticsDataFiltered);
     
 } catch (Exception $e) {
-    $analyticsData = [];
+    $analyticsDataComplete = [];
+    $analyticsDataFiltered = [];
     $error = $e->getMessage();
 }
 ?>
@@ -56,7 +56,7 @@ try {
         </div>
     </div>
     
-    <?php if (empty($analyticsData)): ?>
+    <?php if (empty($analyticsDataComplete)): ?>
         <div class="empty-state">
             <i class="fas fa-chart-bar"></i>
             <h3>Aucune donnée à afficher</h3>
@@ -68,14 +68,21 @@ try {
             <div class="chart-card">
                 <div class="chart-header">
                     <h3>Répartition des créances par <?php echo ucfirst($groupBy === 'age_annees' ? 'âge' : $groupBy); ?></h3>
-                    <small>Nœuds proportionnels utilisant toute la hauteur disponible - Export PNG optimisé - Créances à 0 exclues</small>
+                    <small>Nœuds proportionnels - Créances à 0 exclues du diagramme</small>
                 </div>
                 <div class="chart-body">
-                    <div id="sankeyChart" style="width: 100%; min-height: 500px; height: auto;"></div>
+                    <?php if (empty($analyticsDataFiltered)): ?>
+                        <div class="empty-state">
+                            <i class="fas fa-chart-bar"></i>
+                            <p>Toutes les créances ont un montant à 0.<br/>Impossible d'afficher le diagramme Sankey.</p>
+                        </div>
+                    <?php else: ?>
+                        <div id="sankeyChart" style="width: 100%; min-height: 500px; height: auto;"></div>
+                    <?php endif; ?>
                 </div>
             </div>
             
-            <!-- Tableau récapitulatif -->
+            <!-- Tableau récapitulatif avec TOUTES les données -->
             <div class="stats-card">
                 <div class="stats-header">
                     <h3>Détails des données</h3>
@@ -92,8 +99,8 @@ try {
                         </thead>
                         <tbody>
                             <?php 
-                            $total = array_sum(array_column($analyticsData, 'montant'));
-                            foreach ($analyticsData as $row): 
+                            $total = array_sum(array_column($analyticsDataComplete, 'montant'));
+                            foreach ($analyticsDataComplete as $row): 
                                 $percentage = $total > 0 ? ($row['montant'] / $total) * 100 : 0;
                             ?>
                                 <tr>
@@ -111,7 +118,7 @@ try {
                             <tr class="total-row">
                                 <td><strong>TOTAL</strong></td>
                                 <td class="amount"><strong><?php echo number_format($total, 0, ',', ' '); ?> DZD</strong></td>
-                                <td class="center"><strong><?php echo array_sum(array_column($analyticsData, 'count')); ?></strong></td>
+                                <td class="center"><strong><?php echo array_sum(array_column($analyticsDataComplete, 'count')); ?></strong></td>
                                 <td class="center"><strong>100%</strong></td>
                             </tr>
                         </tbody>
@@ -289,8 +296,14 @@ try {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-sankey/0.12.3/d3-sankey.min.js"></script>
 
 <script>
-// Données pour le diagramme de Sankey
-const analyticsData = <?php echo json_encode($analyticsData); ?>;
+// IMPORTANT : Deux ensembles de données distincts
+// - analyticsDataFiltered : pour le diagramme Sankey (SANS les 0)
+// - analyticsDataComplete : pour le tableau (AVEC les 0)
+const analyticsDataFiltered = <?php echo json_encode($analyticsDataFiltered); ?>;
+const analyticsDataComplete = <?php echo json_encode($analyticsDataComplete); ?>;
+
+console.log('Données filtrées (Sankey):', analyticsDataFiltered.length, 'entrées');
+console.log('Données complètes (Tableau):', analyticsDataComplete.length, 'entrées');
 
 // Palette de couleurs
 const colors = [
@@ -401,10 +414,16 @@ function recalculateLinks(graph) {
 }
 
 function createSankeyDiagram() {
+    // Vérifier qu'il y a des données à afficher
+    if (!analyticsDataFiltered || analyticsDataFiltered.length === 0) {
+        console.warn('Aucune donnée filtrée pour le Sankey');
+        return;
+    }
+    
     const container = d3.select("#sankeyChart");
     container.selectAll("*").remove();
     
-    const dataLength = analyticsData.length;
+    const dataLength = analyticsDataFiltered.length;
     const minHeight = 600;
     const heightPerItem = 120;
     const calculatedHeight = Math.max(minHeight, dataLength * heightPerItem);
@@ -425,7 +444,7 @@ function createSankeyDiagram() {
     const g = svg.append("g")
         .attr("transform", `translate(${margin.left},${margin.top})`);
     
-    const sankeyData = transformDataForSankey(analyticsData);
+    const sankeyData = transformDataForSankey(analyticsDataFiltered);
     const nodeWidth = 40;
     const sankey = d3.sankey()
         .nodeWidth(nodeWidth)
@@ -496,7 +515,7 @@ function createSankeyDiagram() {
             highlightFlow(d);
             
             const percentage = ((d.value / totalValue) * 100);
-            const originalData = analyticsData[d.originalIndex];
+            const originalData = analyticsDataFiltered[d.originalIndex];
             
             tooltip.transition().duration(200).style("opacity", .9);
             tooltip.html(`
@@ -553,7 +572,7 @@ function createSankeyDiagram() {
                     minimumFractionDigits: 0
                 }).format(totalValue)}</strong>`;
             } else {
-                const dataItem = analyticsData[d.originalIndex];
+                const dataItem = analyticsDataFiltered[d.originalIndex];
                 if (dataItem) {
                     const percentage = ((parseFloat(dataItem.montant) / totalValue) * 100);
                     content += `Montant: <strong>${new Intl.NumberFormat('fr-DZ', {
@@ -590,35 +609,33 @@ function createSankeyDiagram() {
 
 function regenerateChart() {
     shuffledOrder = [];
-    createSankeyDiagram();
+    if (analyticsDataFiltered && analyticsDataFiltered.length > 0) {
+        createSankeyDiagram();
+    }
 }
 
 function exportChart() {
     const svg = document.querySelector("#sankeyChart svg");
     if (!svg) {
         console.error("SVG non trouvé pour l'export");
+        showExportNotification("Aucun diagramme à exporter", "error");
         return;
     }
     
     console.log("Début de l'export PNG...");
     
     const svgClone = svg.cloneNode(true);
-    console.log("Clone SVG créé");
     
     const nodesInClone = svgClone.querySelectorAll('.sankey-node rect');
     const linksInClone = svgClone.querySelectorAll('.sankey-link');
     
-    console.log(`Nettoyage de ${nodesInClone.length} nœuds et ${linksInClone.length} liens`);
-    
-    nodesInClone.forEach((rect, index) => {
+    nodesInClone.forEach((rect) => {
         rect.style.stroke = 'none';
         rect.style.strokeWidth = '0';
         rect.style.filter = 'drop-shadow(1px 1px 3px rgba(0,0,0,0.2))';
     });
     
-    linksInClone.forEach((link, index) => {
-        link.style.stroke = link.getAttribute('stroke');
-        link.style.strokeWidth = link.getAttribute('stroke-width');
+    linksInClone.forEach((link) => {
         link.style.fill = 'none';
         link.style.outline = 'none';
     });
@@ -627,8 +644,6 @@ function exportChart() {
     textsInClone.forEach(text => {
         text.style.textShadow = '1px 1px 1px rgba(255,255,255,0.9)';
     });
-    
-    console.log("Nettoyage terminé");
     
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -644,20 +659,14 @@ function exportChart() {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     
-    console.log(`Canvas configuré: ${canvas.width}x${canvas.height} (facteur ${scaleFactor})`);
-    
     const data = new XMLSerializer().serializeToString(svgClone);
     const svgBlob = new Blob([data], {type: 'image/svg+xml;charset=utf-8'});
     const url = URL.createObjectURL(svgBlob);
     
     const img = new Image();
     img.onload = function () {
-        console.log("Image SVG chargée, début du dessin...");
-        
         ctx.drawImage(img, 0, 0, originalWidth, originalHeight);
         URL.revokeObjectURL(url);
-        
-        console.log("Dessin terminé, génération du PNG...");
         
         const imgURI = canvas.toDataURL('image/png', 1.0);
         const link = document.createElement('a');
@@ -670,7 +679,6 @@ function exportChart() {
         link.click();
         document.body.removeChild(link);
         
-        console.log("Export PNG terminé avec succès!");
         showExportNotification("Export PNG réussi!", "success");
     };
     
@@ -707,12 +715,10 @@ function showExportNotification(message, type = "success") {
     document.body.appendChild(notification);
     
     setTimeout(() => {
-        notification.style.transform = 'translateX(0)';
         notification.style.opacity = '1';
     }, 100);
     
     setTimeout(() => {
-        notification.style.transform = 'translateX(100%)';
         notification.style.opacity = '0';
         setTimeout(() => {
             if (document.body.contains(notification)) {
@@ -723,14 +729,17 @@ function showExportNotification(message, type = "success") {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log("Page chargée, données disponibles:", analyticsData.length);
-    if (analyticsData.length > 0) {
+    console.log('Page chargée');
+    console.log('Données filtrées (Sankey):', analyticsDataFiltered.length, 'entrées');
+    console.log('Données complètes (Tableau):', analyticsDataComplete.length, 'entrées');
+    
+    if (analyticsDataFiltered && analyticsDataFiltered.length > 0) {
         createSankeyDiagram();
-        console.log("Diagramme de Sankey créé");
+        console.log("Diagramme de Sankey créé avec", analyticsDataFiltered.length, "catégories");
     } else {
-        console.warn("Aucune donnée pour le diagramme");
+        console.warn("Aucune donnée filtrée disponible pour le Sankey");
     }
 });
 
-console.log("Script Sankey chargé avec corrections export PNG et exclusion créances à 0");
+console.log("✅ Script Sankey chargé - Version avec distinction données Sankey/Tableau");
 </script>

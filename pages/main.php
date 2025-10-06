@@ -2,6 +2,7 @@
 /**
  * Page principale - Tableau des créances
  * Gestion des Créances - Version Web
+ * MODIFICATION: Auto-refresh des stats après filtrage
  */
 
 // Initialiser les variables
@@ -65,9 +66,6 @@ try {
                     </a>
                     <a href="#" onclick="exportExcel()" class="dropdown-item">
                         <i class="fas fa-file-excel"></i> Excel
-                    </a>
-                    <a href="#" onclick="exportCSV()" class="dropdown-item">
-                        <i class="fas fa-file-csv"></i> CSV
                     </a>
                 </div>
             </div>
@@ -295,10 +293,10 @@ try {
                     </thead>
                     <tbody>
                         <tr>
-                            <td class="amount"><?php echo number_format($stats['creance_ttc'], 2, ',', ' '); ?></td>
-                            <td class="amount"><?php echo number_format($stats['creance_ht'], 2, ',', ' '); ?></td>
-                            <td class="amount"><?php echo number_format($stats['provision_ttc'], 2, ',', ' '); ?></td>
-                            <td class="amount"><?php echo number_format($stats['provision_ht'], 2, ',', ' '); ?></td>
+                            <td class="amount" id="stat-creance-ttc"><?php echo number_format($stats['creance_ttc'], 2, ',', ' '); ?></td>
+                            <td class="amount" id="stat-creance-ht"><?php echo number_format($stats['creance_ht'], 2, ',', ' '); ?></td>
+                            <td class="amount" id="stat-provision-ttc"><?php echo number_format($stats['provision_ttc'], 2, ',', ' '); ?></td>
+                            <td class="amount" id="stat-provision-ht"><?php echo number_format($stats['provision_ht'], 2, ',', ' '); ?></td>
                         </tr>
                     </tbody>
                 </table>
@@ -406,7 +404,11 @@ let searchTimeout = null;
 let lastSearchValue = '';
 let isSearching = false;
 
+// NOUVEAU: Stocker les stats actuelles
+let currentStats = <?php echo json_encode($stats); ?>;
+
 console.log('Filtres initiaux:', activeFilters);
+console.log('Stats initiales:', currentStats);
 
 // ============================================
 // INITIALISATION AU CHARGEMENT DE LA PAGE
@@ -580,6 +582,11 @@ function executeSearch(searchValue) {
                     updateResultsCount(data.data.pagination.total_count);
                 }
                 
+                // NOUVEAU: Mettre à jour les stats
+                if (data.data.stats) {
+                    updateStatsDisplay(data.data.stats);
+                }
+                
                 updateSearchIndicator(searchValue, data.data.pagination.total_count);
                 
             } else {
@@ -681,6 +688,50 @@ function normalizeSearchInput(s) {
 }
 
 // ============================================
+// NOUVELLE FONCTION: Mettre à jour l'affichage des statistiques
+// ============================================
+
+function updateStatsDisplay(stats) {
+    console.log('updateStatsDisplay appelée avec:', stats);
+    
+    // Mettre à jour les stats globales
+    currentStats = stats;
+    
+    // Mettre à jour les cellules du tableau dans le modal
+    const statCreanceTTC = document.getElementById('stat-creance-ttc');
+    const statCreanceHT = document.getElementById('stat-creance-ht');
+    const statProvisionTTC = document.getElementById('stat-provision-ttc');
+    const statProvisionHT = document.getElementById('stat-provision-ht');
+    
+    if (statCreanceTTC) {
+        statCreanceTTC.textContent = formatNumber(stats.creance_ttc, 2);
+        // Animation de mise à jour
+        statCreanceTTC.style.background = '#e8f5e9';
+        setTimeout(() => statCreanceTTC.style.background = '', 1000);
+    }
+    
+    if (statCreanceHT) {
+        statCreanceHT.textContent = formatNumber(stats.creance_ht, 2);
+        statCreanceHT.style.background = '#e8f5e9';
+        setTimeout(() => statCreanceHT.style.background = '', 1000);
+    }
+    
+    if (statProvisionTTC) {
+        statProvisionTTC.textContent = formatNumber(stats.provision_ttc, 2);
+        statProvisionTTC.style.background = '#fff3e0';
+        setTimeout(() => statProvisionTTC.style.background = '', 1000);
+    }
+    
+    if (statProvisionHT) {
+        statProvisionHT.textContent = formatNumber(stats.provision_ht, 2);
+        statProvisionHT.style.background = '#fff3e0';
+        setTimeout(() => statProvisionHT.style.background = '', 1000);
+    }
+    
+    console.log('Stats affichées mises à jour');
+}
+
+// ============================================
 // FONCTIONS DE MISE À JOUR DU TABLEAU
 // ============================================
 
@@ -732,7 +783,14 @@ function reloadTableData() {
                     updatePaginationInfo(data.data.pagination);
                     updateResultsCount(data.data.pagination.total_count);
                 }
-            } else {alert('Erreur: ' + data.error);
+                
+                // NOUVEAU: Mettre à jour les stats automatiquement
+                if (data.data.stats) {
+                    updateStatsDisplay(data.data.stats);
+                    console.log('Stats mises à jour après reloadTableData');
+                }
+            } else {
+                alert('Erreur: ' + data.error);
             }
         } catch (e) {
             hideLoader();
@@ -974,15 +1032,13 @@ function exportExcel() {
     window.location.href = 'pages/ajax/export_excel.php';
 }
 
-function exportCSV() {
-    window.location.href = 'pages/ajax/export_csv.php';
-}
-
 // ============================================
-// FONCTIONS FILTRES
+// FONCTIONS FILTRES (MODIFIÉES pour auto-refresh)
 // ============================================
 
 function resetFilters() {
+    console.log('resetFilters - DÉBUT');
+    
     activeFilters = {};
     document.querySelectorAll('.filter-option input[type="checkbox"]').forEach(cb => cb.checked = true);
     
@@ -1009,6 +1065,8 @@ function resetFilters() {
     const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     window.history.replaceState({}, '', newUrl);
 
+    showLoader();
+
     fetch('pages/ajax/set_filters.php', {
         method: 'POST',
         headers: {
@@ -1017,8 +1075,17 @@ function resetFilters() {
         },
         body: JSON.stringify({filters: {}})
     })
-    .then(() => reloadTableData())
-    .catch(() => reloadTableData());
+    .then(response => response.json())
+    .then(data => {
+        console.log('resetFilters - Filtres réinitialisés en session');
+        // IMPORTANT: Recharger les données ET les stats
+        reloadTableData();
+    })
+    .catch(error => {
+        console.error('Erreur resetFilters:', error);
+        hideLoader();
+        reloadTableData();
+    });
 }
 
 function toggleFilterDropdown(column) {
@@ -1069,7 +1136,10 @@ function convertFiltersToBackend(filters) {
     return converted;
 }
 
+// MODIFIÉ: Application des filtres avec auto-refresh des stats
 function applyFilter(column) {
+    console.log('applyFilter - DÉBUT pour colonne:', column);
+    
     const checkboxes = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]:checked`);
     const values = Array.from(checkboxes).map(cb => cb.value);
     const totalOptions = document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`).length;
@@ -1085,6 +1155,8 @@ function applyFilter(column) {
         document.getElementById(`filter-${column}-text`).textContent = `${values.length} sélectionné(s)`;
     }
     
+    console.log('applyFilter - Filtres actifs:', activeFilters);
+    
     toggleFilterDropdown(column);
     showLoader();
 
@@ -1096,6 +1168,8 @@ function applyFilter(column) {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
+            console.log('applyFilter - Filtres sauvegardés, rechargement...');
+            // IMPORTANT: reloadTableData() va maintenant aussi mettre à jour les stats
             reloadTableData();
         } else {
             hideLoader();
@@ -1113,7 +1187,19 @@ function clearFilter(column) {
     document.querySelectorAll(`#filter-${column}-list input[type="checkbox"]`).forEach(cb => cb.checked = false);
     activeFilters[column] = [];
     document.getElementById(`filter-${column}-text`).textContent = 'Tous';
-    reloadTableData();
+    
+    showLoader();
+    
+    fetch('pages/ajax/set_filters.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({filters: convertFiltersToBackend(activeFilters)})
+    })
+    .then(() => reloadTableData())
+    .catch(() => {
+        hideLoader();
+        reloadTableData();
+    });
 }
 
 function toggleFilters() {

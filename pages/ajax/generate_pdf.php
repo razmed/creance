@@ -32,6 +32,15 @@ try {
     require_once '../../classes/Database.php';
     require_once '../../classes/Creance.php';
     require_once '../../classes/PDF.php';
+
+    // Vérifier extension GD
+    if (!extension_loaded('gd')) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Extension PHP GD non installée. Impossible de générer les graphiques.'
+        ]);
+        exit;
+    }
     
     // Récupérer paramètres
     $includeBarChart = isset($_POST['bar_chart']) && $_POST['bar_chart'] === '1';

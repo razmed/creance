@@ -82,7 +82,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // Charger les clients existants pour la liste déroulante (trim pour éviter différences d'espaces)
-// Charger les clients existants pour la liste déroulante (trim + uniq)
 try {
     $db = new Database();
     $clientsResult = $db->select("SELECT DISTINCT client FROM creances WHERE client IS NOT NULL AND client != '' ORDER BY client");
@@ -91,6 +90,23 @@ try {
     $clientsExistants = array_values(array_unique($clientsExistants));
 } catch (Exception $e) {
     $clientsExistants = [];
+}
+
+// CHANGEMENT : Charger les régions existantes de manière dynamique (comme clients)
+try {
+    $regionsResult = $db->select("SELECT DISTINCT region FROM creances WHERE region IS NOT NULL AND region != '' ORDER BY region");
+    $regionsExistantes = array_map('trim', array_filter(array_column($regionsResult, 'region')));
+    // Garantir l'unicité
+    $regionsExistantes = array_values(array_unique($regionsExistantes));
+    
+    // Merger avec les régions statiques de base (CHOIX_REGION) pour fallback/initial
+    $allRegions = array_unique(array_merge(CHOIX_REGION, $regionsExistantes));
+    // Trier alphabétiquement pour une meilleure UX
+    sort($allRegions);
+} catch (Exception $e) {
+    // Fallback aux régions statiques si erreur DB
+    $allRegions = CHOIX_REGION;
+    sort($allRegions);
 }
 ?>
 
@@ -148,7 +164,7 @@ try {
                                 </div>
                                 <select name="region" id="region" class="form-control" required>
                                     <option value="">Sélectionner une région...</option>
-                                    <?php foreach (CHOIX_REGION as $region): ?>
+                                    <?php foreach ($allRegions as $region): ?>  <!-- CHANGEMENT : Utiliser $allRegions (dynamique) au lieu de CHOIX_REGION -->
                                         <option value="<?php echo htmlspecialchars($region); ?>" 
                                                 <?php echo ($editData && $editData['region'] === $region) ? 'selected' : ''; ?>>
                                             <?php echo htmlspecialchars($region); ?>
